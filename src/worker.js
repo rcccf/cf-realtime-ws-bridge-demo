@@ -162,7 +162,7 @@ export default {
     } else if (url.pathname === "/") {
       const protocol = url.protocol === "https:" ? "wss:" : "ws:";
       return new Response(
-        `Welcome to WebSocket Re-broadcaster!
+        `Welcome to WebSocket Bridge!
 Connect a publisher to: ${protocol}//${url.host}/ws/<your-random-channel-id>/publish
 Connect subscribers to: ${protocol}//${url.host}/ws/<your-random-channel-id>/subscribe
 

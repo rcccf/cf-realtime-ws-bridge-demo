@@ -1,4 +1,4 @@
-name = "websocket-rebroadcast"
+name = "websocket-bridge"
 main = "src/worker.js"
 compatibility_date = "2023-10-30" # Use a recent date
 
