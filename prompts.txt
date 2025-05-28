@@ -23,7 +23,7 @@ Requirement:
 2. The Web Workers should connect to the WebSocket and handle protobuf decoding;
 3. The main thread should only have to handle UI update and audio playback;
 4. Ensure to embed the Web Workers in a <script> block for better readability instead of string template;
-5. Include a area to show debug info, such as logs, connection state change, packet loss, buffer/queue, sequence number, etc;
+5. Include an area to show debug info, such as logs, connection state change, packet loss, buffer/queue, sequence number, etc;
 6. Style the web page minimally for a modern look.
 
 Pitfalls:
@@ -32,6 +32,48 @@ Pitfalls:
 3. Use AudioWorkletNode as ScriptProcessorNode is deprecated;
 4. Avoid thrashing the main thread because of too many UI updates;
 5. Ensure to update the UI correctly when the Disconnect button is clicked.
+
+---
+
+src/publisher.html was generated using the following prompt:
+
+Please implement a single page application connecting to the Cloudflare Realtime SFU that will publish user's microphone as an audio track.
+
+Requirement:
+1. The web page should take appId and bearer token from input box;
+2. Once the connection is established, display the sessionId;
+3. Once the track is published, display the trackName;
+4. Include area to show debug information, such as logs and other stats;
+5. Include buttons to start and stop;
+6. Style the page minimally for a modern look.
+
+Additionally:
+1. Include section that offers the option to send an API request to `POST /v1/apps/{appId}/sessions/{sessionId}/tracks/subscribe` with the following request format:
+```
+{
+  "tracks": [{
+    "trackName": "name_of_the_audio_track",
+    "endpoint": "user_provided_websocket_endpoint",
+    "outputCodec": "pcm"
+  }]
+}
+```
+The `endpoint` parameter should be provided by the user, `trackName` should be populated from publishing the audio track.
+Display the request URL and request body in realtime for user to review, and display response as is for debugging
+
+Note:
+1. There is no Cloudflare Realtime SDK/client available. Please make appropriate API requests within the html page.
+2. Cloudflare Realtime API is HTTP only. There's no WebSocket.
+3. Save the appId and Bearer token to localStorage so on refresh the user doesn't need to enter them again.
+
+Reference, <style> from the demo player, use this for reference for a more consistent styling:
+(content from src/player.html <style> block)
+
+Reference, demo echo application:
+(content from https://raw.githubusercontent.com/cloudflare/calls-examples/refs/heads/main/echo/index.html)
+
+Reference, OpenAPI schema:
+(content from https://developers.cloudflare.com/realtime/static/calls-api-2024-05-21.yaml)
 
 ---
 

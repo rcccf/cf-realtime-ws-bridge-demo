@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cloudflare Realtime SFU - Audio Publisher</title>
+    <!-- webrtc-adapter for cross-browser compatibility -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/webrtc-adapter/8.2.3/adapter.min.js"
+        integrity="sha512-P3NfFn3amZ7Lhp9D6Rj9DZO8AbK00U37LF1iQSiQSiYJgKOG2Yq24KqsX4H1z/z1/8LPzK4zYgBqfiT/h5D4dA=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f7f9;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            background-color: #fff;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 700px;
+            margin-bottom: 20px;
+        }
+
+        h1,
+        h2 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .controls,
+        .stats,
+        .api-section {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        input[type="text"],
+        input[type="password"] {
+            width: calc(100% - 22px);
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        button {
+            padding: 10px 18px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background-color 0.2s ease;
+        }
+
+        .primary-btn {
+            background-color: #3498db;
+            color: white;
+        }
+
+        .primary-btn:hover {
+            background-color: #2980b9;
+        }
+
+        .primary-btn:disabled {
+            background-color: #a9cce3;
+            cursor: not-allowed;
+        }
+
+        .danger-btn {
+            background-color: #e74c3c;
+            color: white;
+        }
+
+        .danger-btn:hover {
+            background-color: #c0392b;
+        }
+
+        .danger-btn:disabled {
+            background-color: #f5b7b1;
+            cursor: not-allowed;
+        }
+
+        #debugArea,
+        .api-display {
+            width: 100%;
+            min-height: 100px;
+            max-height: 250px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #ecf0f1;
+            font-family: "Courier New", Courier, monospace;
+            font-size: 0.9em;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            box-sizing: border-box;
+            margin-top: 8px;
+            word-break: break-all;
+        }
+
+        .stats p {
+            margin: 5px 0;
+            font-size: 0.95em;
+        }
+
+        .stats p span {
+            font-weight: bold;
+            color: #3498db;
+        }
+
+        .status-indicator {
+            padding: 8px 12px;
+            border-radius: 4px;
+            color: white;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 15px;
+            transition: background-color 0.3s ease;
+        }
+
+        .status-disconnected {
+            background-color: #e74c3c;
+        }
+
+        .status-connecting {
+            background-color: #f39c12;
+        }
+
+        .status-connected {
+            background-color: #2ecc71;
+        }
+
+        .status-error {
+            background-color: #e74c3c;
+        }
+
+        .subscribe-details {
+            margin-top: 15px;
+            padding: 10px;
+            border: 1px dashed #bdc3c7;
+            border-radius: 4px;
+            background-color: #fdfefe;
+        }
+
+        .subscribe-details h3 {
+            margin-top: 0;
+            font-size: 1.1em;
+            color: #34495e;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Cloudflare Realtime SFU - Audio Publisher</h1>
+
+        <div class="controls">
+            <label for="appId">App ID:</label>
+            <input type="text" id="appId" placeholder="Enter your App ID">
+
+            <label for="bearerToken">Bearer Token:</label>
+            <input type="password" id="bearerToken" placeholder="Enter your Bearer Token">
+
+            <button id="startBtn" class="primary-btn">Start Publishing</button>
+            <button id="stopBtn" class="danger-btn" disabled>Stop Publishing</button>
+        </div>
+
+        <div id="statusIndicator" class="status-indicator status-disconnected">Status: Disconnected</div>
+
+        <div class="stats">
+            <h2>Session Information</h2>
+            <p>Session ID: <span id="sessionIdDisplay">-</span></p>
+            <p>Published Track Name: <span id="trackNameDisplay">-</span></p>
+            <p>Published Track MID: <span id="trackMidDisplay">-</span></p>
+        </div>
+    </div>
+
+    <div class="container api-section">
+        <h2>Subscribe Track via API</h2>
+        <p>This section allows you to send a POST request to
+            <code>/v1/apps/{appId}/sessions/{sessionId}/tracks/subscribe</code> to have the SFU forward the published
+            audio track (e.g., to a WebSocket endpoint for transcription).</p>
+
+        <label for="wsEndpoint">WebSocket Endpoint URL (for SFU to send audio to):</label>
+        <input type="text" id="wsEndpoint" placeholder="wss://your-websocket-server.example.com/audio_feed">
+
+        <button id="sendSubscribeBtn" class="primary-btn" disabled>Send Subscribe Request</button>
+
+        <div class="subscribe-details">
+            <h3>Request Details (Realtime Preview)</h3>
+            <p><strong>Request URL:</strong></p>
+            <pre id="subscribeRequestUrlDisplay" class="api-display">-</pre>
+            <p><strong>Request Body:</strong></p>
+            <pre id="subscribeRequestBodyDisplay" class="api-display">-</pre>
+        </div>
+
+        <div class="subscribe-details" style="margin-top:10px;">
+            <h3>API Response from SFU</h3>
+            <pre id="subscribeResponseDisplay" class="api-display">-</pre>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>Debug Log</h2>
+        <pre id="debugArea"></pre>
+    </div>
+
+    <script type="module">
+        const appIdInput = document.getElementById('appId');
+        const bearerTokenInput = document.getElementById('bearerToken');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const sessionIdDisplay = document.getElementById('sessionIdDisplay');
+        const trackNameDisplay = document.getElementById('trackNameDisplay');
+        const trackMidDisplay = document.getElementById('trackMidDisplay');
+        const debugArea = document.getElementById('debugArea');
+        const statusIndicator = document.getElementById('statusIndicator');
+
+        const wsEndpointInput = document.getElementById('wsEndpoint');
+        const sendSubscribeBtn = document.getElementById('sendSubscribeBtn');
+        const subscribeRequestUrlDisplay = document.getElementById('subscribeRequestUrlDisplay');
+        const subscribeRequestBodyDisplay = document.getElementById('subscribeRequestBodyDisplay');
+        const subscribeResponseDisplay = document.getElementById('subscribeResponseDisplay');
+
+        const CLOUDFLARE_API_BASE = "https://rtc.live.cloudflare.com/v1";
+
+        let currentAppId = '';
+        let currentBearerToken = '';
+        let currentSessionId = null;
+        let publishedTrackName = null;
+        let publishedTrackMid = null;
+        let peerConnection = null;
+        let localStream = null;
+        let audioTransceiver = null;
+
+        function log(message) {
+            console.log(message);
+            const timestamp = new Date().toLocaleTimeString();
+            const messageStr = (typeof message === 'object' && message !== null) ? JSON.stringify(message, null, 2) : String(message);
+            debugArea.textContent = `[${timestamp}] ${messageStr}\n` + debugArea.textContent;
+        }
+
+        function updateStatus(status, message) {
+            statusIndicator.className = `status-indicator status-${status}`;
+            statusIndicator.textContent = `Status: ${message}`;
+            log(`Status update: ${status} - ${message}`);
+        }
+
+        function getHeaders() {
+            return {
+                'Authorization': `Bearer ${currentBearerToken}`,
+                'Content-Type': 'application/json'
+            };
+        }
+
+        async function apiRequest(method, path, body = null) {
+            // Ensure currentAppId is up-to-date for this function call
+            const appIdForRequest = appIdInput.value.trim();
+            if (!appIdForRequest) {
+                throw new Error("App ID is not set for API request.");
+            }
+            const url = `${CLOUDFLARE_API_BASE}/apps/${appIdForRequest}${path}`;
+
+            log(`API Request: ${method} ${url}`);
+            if (body) log(`Request Body: ${JSON.stringify(body)}`);
+
+            try {
+                const response = await fetch(url, {
+                    method: method,
+                    headers: getHeaders(),
+                    body: body ? JSON.stringify(body) : null
+                });
+
+                let responseData;
+                const contentType = response.headers.get("content-type");
+                if (contentType && contentType.includes("application/json")) {
+                    responseData = await response.json();
+                } else {
+                    responseData = await response.text();
+                }
+
+                log(`API Response Status: ${response.status}`);
+                log(responseData);
+
+                if (!response.ok) {
+                    const errorMsg = `API Error: ${response.status} - ${(responseData && responseData.errorDescription) ? responseData.errorDescription : JSON.stringify(responseData)}`;
+                    log(errorMsg);
+                    // Don't update global status from here directly, let calling function handle
+                    throw new Error(errorMsg);
+                }
+                return responseData;
+            } catch (error) {
+                log(`Fetch Error: ${error.message}`);
+                // Don't update global status from here directly
+                throw error;
+            }
+        }
+
+        async function startPublishing() {
+            currentAppId = appIdInput.value.trim();
+            currentBearerToken = bearerTokenInput.value.trim();
+
+            if (!currentAppId || !currentBearerToken) {
+                alert("App ID and Bearer Token are required.");
+                return;
+            }
+            localStorage.setItem('cfRealtimeAppId', currentAppId);
+            localStorage.setItem('cfRealtimeBearerToken', currentBearerToken);
+
+            startBtn.disabled = true;
+            stopBtn.disabled = true;
+            updateStatus('connecting', 'Initializing...');
+
+            try {
+                log("Requesting microphone access...");
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                log("Microphone access granted.");
+
+                updateStatus('connecting', 'Creating session...');
+                const sessionResponse = await apiRequest('POST', `/sessions/new`);
+                currentSessionId = sessionResponse.sessionId;
+                sessionIdDisplay.textContent = currentSessionId;
+                log(`Session created: ${currentSessionId}`);
+                updateSubscribeRequestPreview();
+
+                peerConnection = new RTCPeerConnection({
+                    iceServers: [{ urls: "stun:stun.cloudflare.com:3478" }],
+                    bundlePolicy: "max-bundle"
+                });
+
+                peerConnection.onicecandidate = event => {
+                    if (event.candidate) {
+                        log(`ICE Candidate generated: ${event.candidate.candidate.substring(0, 70)}...`);
+                    }
+                };
+
+                peerConnection.oniceconnectionstatechange = () => {
+                    log(`ICE Connection State: ${peerConnection.iceConnectionState}`);
+                    switch (peerConnection.iceConnectionState) {
+                        case "connected":
+                        case "completed":
+                            updateStatus('connected', 'Track Published & Connected');
+                            stopBtn.disabled = false;
+                            sendSubscribeBtn.disabled = !!(currentAppId && currentSessionId && publishedTrackName && wsEndpointInput.value.trim());
+                            break;
+                        case "failed":
+                            updateStatus('error', 'ICE connection failed.');
+                            stopPublishing(true);
+                            break;
+                        case "disconnected":
+                            updateStatus('connecting', 'ICE disconnected. May attempt to reconnect...');
+                            break;
+                        case "closed":
+                            // This often happens after stopPublishing, so ensure UI reflects disconnected state if not already
+                            if (statusIndicator.classList.contains('status-connected')) {
+                                updateStatus('disconnected', 'ICE connection closed.');
+                            }
+                            break;
+                    }
+                };
+
+                peerConnection.ontrack = event => {
+                    log("Remote track received (unexpected for publisher-only):", event.track);
+                };
+
+                const audioTrack = localStream.getAudioTracks()[0];
+                const localTrackNameIntent = `microphone-${Date.now()}`;
+                audioTransceiver = peerConnection.addTransceiver(audioTrack, { direction: "sendonly" });
+                log(`Audio track added to PeerConnection. Local Track Name Intent: ${localTrackNameIntent}`);
+                // audioTransceiver.mid will be populated after createOffer/setLocalDescription
+
+                updateStatus('connecting', 'Creating SDP offer...');
+                const offer = await peerConnection.createOffer();
+                await peerConnection.setLocalDescription(offer);
+                log(`Local description (offer) set. Transceiver MID: ${audioTransceiver.mid}`);
+                if (!audioTransceiver.mid) {
+                    log("CRITICAL: Transceiver MID is null after setLocalDescription. This will likely fail.");
+                    // Attempt to find it (though this shouldn't be necessary with modern browsers)
+                    const senders = peerConnection.getSenders();
+                    const audioSender = senders.find(s => s.track === audioTrack);
+                    if (audioSender) {
+                        const associatedTransceiverFromSenders = peerConnection.getTransceivers().find(t => t.sender === audioSender);
+                        if (associatedTransceiverFromSenders && associatedTransceiverFromSenders.mid) {
+                            audioTransceiver.mid = associatedTransceiverFromSenders.mid;
+                            log("Fallback: Found MID through getSenders/getTransceivers: " + audioTransceiver.mid);
+                        }
+                    }
+                }
+
+
+                updateStatus('connecting', 'Publishing track to SFU...');
+                const tracksNewRequestBody = {
+                    sessionDescription: {
+                        sdp: offer.sdp,
+                        type: "offer"
+                    },
+                    tracks: [{
+                        location: "local",
+                        mid: audioTransceiver.mid,
+                        trackName: localTrackNameIntent
+                    }]
+                };
+
+                const pushResponse = await apiRequest('POST', `/sessions/${currentSessionId}/tracks/new`, tracksNewRequestBody);
+
+                if (pushResponse.sessionDescription && pushResponse.sessionDescription.type === 'answer') {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(pushResponse.sessionDescription));
+                    log("Remote description (answer) set.");
+                } else {
+                    throw new Error("SFU did not return a valid answer SDP.");
+                }
+
+                if (pushResponse.tracks && pushResponse.tracks.length > 0) {
+                    const trackInfo = pushResponse.tracks[0];
+                    if (trackInfo.errorCode) {
+                        throw new Error(`SFU reported error for track ${trackInfo.trackName}: ${trackInfo.errorCode} - ${trackInfo.errorDescription}`);
+                    }
+                    publishedTrackName = trackInfo.trackName;
+                    publishedTrackMid = trackInfo.mid;
+                    trackNameDisplay.textContent = publishedTrackName;
+                    trackMidDisplay.textContent = publishedTrackMid;
+                    log(`Track published successfully by SFU: Name='${publishedTrackName}', MID='${publishedTrackMid}'`);
+                    updateSubscribeRequestPreview();
+                } else {
+                    throw new Error("SFU did not confirm track publication in response's tracks array.");
+                }
+                // ICE connection state change handles final "connected" status and enables stopBtn.
+
+            } catch (error) {
+                log(`Error during startPublishing: ${error.message}`);
+                updateStatus('error', `Failed: ${error.message.substring(0, 100)}...`); // Show a snippet
+                await stopPublishing(true);
+            }
+        }
+
+        async function stopPublishing(isErrorCleanup = false) {
+            log("Stopping publishing...");
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            sendSubscribeBtn.disabled = true;
+
+            if (peerConnection) {
+                if (currentAppId && currentSessionId && publishedTrackMid) {
+                    try {
+                        log(`Attempting to close track MID: ${publishedTrackMid} on session ${currentSessionId}`);
+                        const closeTrackBody = {
+                            tracks: [{ mid: publishedTrackMid }],
+                            force: true
+                        };
+                        await apiRequest('PUT', `/sessions/${currentSessionId}/tracks/close`, closeTrackBody);
+                        log(`Track MID ${publishedTrackMid} close request sent to SFU.`);
+                    } catch (error) {
+                        log(`Error closing track on SFU: ${error.message}. Continuing local cleanup.`);
+                    }
+                }
+
+                peerConnection.close();
+                peerConnection = null;
+                log("PeerConnection closed locally.");
+            }
+
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+                log("Local media stream stopped.");
+            }
+
+            audioTransceiver = null;
+
+            if (!isErrorCleanup) {
+                updateStatus('disconnected', 'Disconnected');
+            }
+
+            // Reset UI displays for session info
+            currentSessionId = null;
+            publishedTrackName = null;
+            publishedTrackMid = null;
+            sessionIdDisplay.textContent = '-';
+            trackNameDisplay.textContent = '-';
+            trackMidDisplay.textContent = '-';
+            updateSubscribeRequestPreview();
+        }
+
+        function updateSubscribeRequestPreview() {
+            const appId = appIdInput.value.trim();
+            const sessId = currentSessionId; // No placeholder needed here, it's either null or a value
+            const trackN = publishedTrackName;
+            const wsEp = wsEndpointInput.value.trim();
+
+            if (appId && sessId) {
+                const url = `${CLOUDFLARE_API_BASE}/apps/${appId}/sessions/${sessId}/tracks/subscribe`;
+                subscribeRequestUrlDisplay.textContent = url;
+            } else {
+                subscribeRequestUrlDisplay.textContent = '- (App ID and Session ID required)';
+            }
+
+            const body = {
+                tracks: [{
+                    trackName: trackN || "{publishedTrackName}",
+                    endpoint: wsEp || "{user_provided_websocket_endpoint}",
+                    outputCodec: "pcm"
+                }]
+            };
+            subscribeRequestBodyDisplay.textContent = JSON.stringify(body, null, 2);
+
+            // Enable/disable sendSubscribeBtn based on whether all required fields for it are ready
+            const canSubscribe = !!(appId && sessId && trackN && wsEp && peerConnection && (peerConnection.iceConnectionState === 'connected' || peerConnection.iceConnectionState === 'completed'));
+            sendSubscribeBtn.disabled = !canSubscribe;
+        }
+
+        async function sendSubscribeRequest() {
+            const appId = appIdInput.value.trim();
+            const sessId = currentSessionId;
+            const trackN = publishedTrackName;
+            const wsEp = wsEndpointInput.value.trim();
+
+            if (!appId || !sessId || !trackN || !wsEp) {
+                alert("App ID, active session, published track name, and WebSocket endpoint URL are required to send a subscribe request.");
+                return;
+            }
+
+            sendSubscribeBtn.disabled = true;
+            subscribeResponseDisplay.textContent = "Sending request to SFU...";
+
+            const path = `/sessions/${sessId}/tracks/subscribe?streamDebug=1`;
+            const body = {
+                tracks: [{
+                    trackName: trackN,
+                    endpoint: wsEp,
+                    outputCodec: "pcm"
+                }]
+            };
+
+            try {
+                const response = await apiRequest('POST', path, body);
+                subscribeResponseDisplay.textContent = JSON.stringify(response, null, 2);
+                if (response && response.tracks && response.tracks[0] && response.tracks[0].errorCode) {
+                    log(`Subscribe request error from SFU: ${response.tracks[0].errorDescription}`);
+                } else {
+                    log("Subscribe request successful (according to SFU).");
+                }
+            } catch (error) {
+                subscribeResponseDisplay.textContent = `Error: ${error.message}\n\n${error.responseBody || ''}`;
+            } finally {
+                // Re-enable button if connection is still active
+                if (peerConnection && (peerConnection.iceConnectionState === "connected" || peerConnection.iceConnectionState === "completed")) {
+                    sendSubscribeBtn.disabled = false;
+                }
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            appIdInput.value = localStorage.getItem('cfRealtimeAppId') || '';
+            bearerTokenInput.value = localStorage.getItem('cfRealtimeBearerToken') || '';
+
+            // Initialize currentAppId and currentBearerToken from potentially loaded values
+            currentAppId = appIdInput.value;
+            currentBearerToken = bearerTokenInput.value;
+            updateSubscribeRequestPreview();
+
+            appIdInput.addEventListener('input', () => {
+                localStorage.setItem('cfRealtimeAppId', appIdInput.value);
+                currentAppId = appIdInput.value; // Update global var
+                updateSubscribeRequestPreview();
+            });
+            bearerTokenInput.addEventListener('input', () => {
+                localStorage.setItem('cfRealtimeBearerToken', bearerTokenInput.value);
+                currentBearerToken = bearerTokenInput.value; // Update global var
+            });
+            wsEndpointInput.addEventListener('input', updateSubscribeRequestPreview);
+
+            startBtn.addEventListener('click', startPublishing);
+            stopBtn.addEventListener('click', () => stopPublishing(false));
+            sendSubscribeBtn.addEventListener('click', sendSubscribeRequest);
+
+            updateStatus('disconnected', 'Ready');
+        });
+    </script>
+</body>
+
+</html>

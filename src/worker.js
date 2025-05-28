@@ -1,4 +1,5 @@
 import playerHtml from "./player.html";
+import publisherHtml from "./publisher.html";
 import { DurableObject } from "cloudflare:workers";
 
 export class WebSocketBridge extends DurableObject {
@@ -153,6 +154,12 @@ export default {
       // The Durable Object's fetch handler will manage the WebSocket handshake.
       // We need to pass the original request URL so the DO can parse the role.
       return stub.fetch(request);
+    } else if (url.pathname === "/publisher") {
+      return new Response(publisherHtml, {
+        headers: {
+          "Content-Type": "text/html;charset=UTF-8",
+        },
+      });
     } else if (url.pathname === "/player") {
       return new Response(playerHtml, {
         headers: {
@@ -168,6 +175,7 @@ Connect subscribers to: ${protocol}//${url.host}/ws/<your-random-channel-id>/sub
 
 A publisher can be the endpoint parameter for Cloudflare Realtime API's WebRTC to WebSocket bridge at /tracks/subscribe
 A subscriber can be an example WebSocket player available at /player, or your audio processor that will speak WebSocket
+A demo WebRTC client is available at /publisher that publishes your microphone as an audio track
 
 Replace <your-random-channel-id> with a unique ID for your broadcast room (e.g., a UUID).
 All clients (publisher and subscribers) for the same room must use the same channel ID.
