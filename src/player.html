@@ -148,6 +148,13 @@
         <div id="debugArea"></div>
     </div>
 
+    <script>
+        window.addEventListener("load", function() {
+            const v = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/hello-world/subscribe'
+            document.getElementById('wsUrl').value = v
+        })
+    </script>
+
     <script type="javascript/worker" id="workerScript">
       // Web Worker Script
       let ws;
@@ -397,8 +404,6 @@
 
         const MAX_LOG_LINES = 100;
         let logLines = [];
-
-        wsUrlInput.value = location.protocol === 'https:' ? 'wss://' : 'ws://' + location.host + '/ws/hello-world/subscribe'
 
         function logMessage(message) {
             console.log(message);
