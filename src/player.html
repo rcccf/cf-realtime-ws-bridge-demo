@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Audio Player</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+            background-color: #f4f4f4;
+            color: #333;
+        }
+
+        #controls,
+        #status {
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        label {
+            display: inline-block;
+            margin-right: 10px;
+        }
+
+        input[type="text"] {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            min-width: 300px;
+        }
+
+        button {
+            padding: 10px 15px;
+            margin-left: 10px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        #status p {
+            margin: 5px 0;
+        }
+
+        .log-message {
+            padding: 8px;
+            margin-bottom: 5px;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+
+        .log-info {
+            background-color: #e7f3fe;
+            border-left: 3px solid #2196F3;
+        }
+
+        .log-error {
+            background-color: #ffebee;
+            border-left: 3px solid #f44336;
+        }
+
+        .log-success {
+            background-color: #e8f5e9;
+            border-left: 3px solid #4CAF50;
+        }
+
+        .log-warn {
+            background-color: #fff3e0;
+            border-left: 3px solid #ff9800;
+        }
+
+        #logContainer {
+            max-height: 300px;
+            overflow-y: auto;
+            border: 1px solid #eee;
+            padding: 10px;
+            background-color: #fafafa;
+        }
+    </style>
+    <!-- Load protobuf.js library -->
+    <script src="https://cdn.jsdelivr.net/npm/protobufjs@7.2.5/dist/protobuf.min.js"></script>
+</head>
+
+<body>
+
+    <h1>WebSocket Audio Player (48kHz PCM Stereo)</h1>
+
+    <div id="controls">
+        <label for="wsUrl">WebSocket URL:</label>
+        <input type="text" id="wsUrl" value="ws://localhost:8787/ws/hello-world/subscribe">
+        <button id="connectBtn">Connect</button>
+        <button id="disconnectBtn" disabled>Disconnect</button>
+    </div>
+
+    <div id="status">
+        <p><strong>Status:</strong> <span id="connectionStatus">Disconnected</span></p>
+        <p><strong>Packets Received:</strong> <span id="packetsReceived">0</span></p>
+        <p><strong>Last Sequence:</strong> <span id="lastSequence">-</span></p>
+        <p><strong>Buffer Queue Length:</strong> <span id="bufferQueueLength">0</span></p>
+        <p><strong>Audio Context Time:</strong> <span id="audioContextTime">0.00s</span></p>
+        <p><strong>Next Play Time:</strong> <span id="nextPlayTimeScheduled">0.00s</span></p>
+    </div>
+
+    <div id="logContainer">
+        <p><em>Logs will appear here...</em></p>
+    </div>
+
+    <script>
+        const wsUrlInput = document.getElementById('wsUrl');
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const connectionStatusElem = document.getElementById('connectionStatus');
+        const packetsReceivedElem = document.getElementById('packetsReceived');
+        const lastSequenceElem = document.getElementById('lastSequence');
+        const bufferQueueLengthElem = document.getElementById('bufferQueueLength');
+        const audioContextTimeElem = document.getElementById('audioContextTime');
+        const nextPlayTimeScheduledElem = document.getElementById('nextPlayTimeScheduled');
+        const logContainer = document.getElementById('logContainer');
+
+        let websocket = null;
+        let audioContext = null;
+        let PacketMessage = null; // Will hold the Protobuf message type
+        let audioQueue = [];
+        let nextPlayTime = 0;
+        let isPlaying = false;
+        let packetCounter = 0;
+        let expectedSequenceNumber = 0; // For checking sequence
+
+        const SAMPLE_RATE = 48000;
+        const NUM_CHANNELS = 2;
+
+        // Protobuf schema definition
+        const protoDefinition = `
+            syntax = "proto3";
+
+            message Packet {
+                uint32 sequenceNumber = 1;
+                uint32 timestamp = 2;
+                bytes payload = 5;
+            }
+        `;
+
+        function log(message, type = 'info') {
+            console.log(`[${type.toUpperCase()}] ${message}`);
+            const p = document.createElement('p');
+            p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            p.className = `log-message log-${type}`;
+            if (logContainer.firstChild && logContainer.firstChild.textContent === 'Logs will appear here...') {
+                logContainer.innerHTML = ''; // Clear initial message
+            }
+            logContainer.appendChild(p);
+            logContainer.scrollTop = logContainer.scrollHeight; // Auto-scroll
+        }
+
+        async function initProtobuf() {
+            try {
+                // protobuf is globally available from the CDN
+                // For protobuf.js v7.x.x, use protobuf.parse(source).root
+                if (typeof protobuf === 'undefined' || typeof protobuf.parse === 'undefined') {
+                    log("protobuf.js library not loaded correctly or `protobuf.parse` is not available.", "error");
+                    return;
+                }
+                const parsedResult = protobuf.parse(protoDefinition);
+                const root = parsedResult.root;
+
+                // If your .proto file had a "package my.package;" declaration,
+                // you would use "my.package.Packet"
+                PacketMessage = root.lookupType("Packet");
+                if (!PacketMessage) {
+                    log("Could not find 'Packet' message type in Protobuf schema.", "error");
+                    return;
+                }
+                log("Protobuf schema parsed successfully.", "success");
+            } catch (error) {
+                log(`Error initializing Protobuf: ${error.message}`, "error");
+                console.error("Protobuf init error:", error);
+                PacketMessage = null; // Ensure it's null on error
+            }
+        }
+
+        function initAudioContext() {
+            if (!audioContext || audioContext.state === 'closed') {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: SAMPLE_RATE
+                });
+                nextPlayTime = audioContext.currentTime; // Initialize nextPlayTime
+                log(`AudioContext initialized. Sample rate: ${audioContext.sampleRate}Hz. State: ${audioContext.state}`, "success");
+                if (audioContext.sampleRate !== SAMPLE_RATE) {
+                    log(`Warning: AudioContext sample rate (${audioContext.sampleRate}Hz) does not match desired rate (${SAMPLE_RATE}Hz). Playback might be sped up or slowed down.`, "warn");
+                }
+            }
+            // Resume context if it was suspended by browser policy
+            if (audioContext.state === 'suspended') {
+                audioContext.resume().then(() => {
+                    log('AudioContext resumed.', "success");
+                }).catch(err => {
+                    log(`Error resuming AudioContext: ${err}`, "error");
+                });
+            }
+        }
+
+        connectBtn.onclick = () => {
+            if (!PacketMessage) {
+                log("Protobuf schema not loaded yet. Please wait.", "warn");
+                return;
+            }
+            const url = wsUrlInput.value;
+            log(`Attempting to connect to ${url}...`);
+            websocket = new WebSocket(url);
+            websocket.binaryType = "arraybuffer"; // Important for Protobuf
+
+            websocket.onopen = () => {
+                log("WebSocket connected!", "success");
+                connectionStatusElem.textContent = "Connected";
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                wsUrlInput.disabled = true;
+                packetCounter = 0;
+                packetsReceivedElem.textContent = packetCounter;
+                lastSequenceElem.textContent = "-";
+                expectedSequenceNumber = 0; // Reset sequence
+                initAudioContext();
+            };
+
+            websocket.onmessage = (event) => {
+                if (!audioContext || audioContext.state !== 'running') {
+                    log("AudioContext not ready, discarding packet.", "warn");
+                    // Attempt to re-initialize or resume if it's suspended
+                    if (audioContext && audioContext.state === 'suspended') {
+                        audioContext.resume().catch(err => log(`Error resuming AudioContext on message: ${err}`, "error"));
+                    } else if (!audioContext) {
+                        initAudioContext();
+                    }
+                    return;
+                }
+
+                packetCounter++;
+                packetsReceivedElem.textContent = packetCounter;
+
+                try {
+                    const uint8Array = new Uint8Array(event.data);
+                    const decodedMessage = PacketMessage.decode(uint8Array);
+
+                    lastSequenceElem.textContent = decodedMessage.sequenceNumber;
+
+                    if (expectedSequenceNumber !== 0 && decodedMessage.sequenceNumber !== expectedSequenceNumber) {
+                        log(`Packet sequence mismatch! Expected: ${expectedSequenceNumber}, Got: ${decodedMessage.sequenceNumber}. Packets lost: ${decodedMessage.sequenceNumber - expectedSequenceNumber}`, "warn");
+                    }
+                    expectedSequenceNumber = decodedMessage.sequenceNumber + 1;
+
+                    const pcmData = decodedMessage.payload; // This is Uint8Array
+                    processAudioData(pcmData);
+
+                } catch (error) {
+                    log(`Error processing message: ${error}`, "error");
+                    console.error("Message processing error:", error);
+                }
+            };
+
+            websocket.onerror = (error) => {
+                log(`WebSocket error: ${error.message || 'Unknown error'}`, "error");
+                console.error("WebSocket error:", error);
+                // UI updates will be handled by onclose
+            };
+
+            websocket.onclose = (event) => {
+                log(`WebSocket disconnected. Code: ${event.code}, Reason: ${event.reason || 'No reason given'}`, event.wasClean ? "info" : "warn");
+                connectionStatusElem.textContent = "Disconnected";
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+                wsUrlInput.disabled = false;
+                isPlaying = false;
+                audioQueue = []; // Clear queue on disconnect
+                bufferQueueLengthElem.textContent = audioQueue.length;
+                if (audioContext && audioContext.state !== 'closed') {
+                    // Don't close, allow potential reconnection to reuse it
+                    // audioContext.close().then(() => log("AudioContext closed.", "info"));
+                    // audioContext = null;
+                }
+            };
+        };
+
+        disconnectBtn.onclick = () => {
+            if (websocket) {
+                websocket.close();
+                log("Manual disconnect initiated.");
+            }
+        };
+
+        function processAudioData(payloadBytes) {
+            // Assuming S16LE PCM data (16-bit signed integers, little-endian)
+            // Each sample is 2 bytes. Stereo means 2 samples per frame (L, R). So 4 bytes per frame.
+            const numSamples = payloadBytes.length / 2; // Total number of 16-bit samples
+            const numFrames = numSamples / NUM_CHANNELS;
+
+            if (payloadBytes.length === 0) {
+                log("Received empty audio payload.", "warn");
+                return;
+            }
+            if (numFrames <= 0) {
+                log(`Invalid audio payload size: ${payloadBytes.length} bytes resulted in ${numFrames} frames.`, "warn");
+                return;
+            }
+
+
+            const audioBuffer = audioContext.createBuffer(NUM_CHANNELS, numFrames, SAMPLE_RATE);
+            const leftChannel = audioBuffer.getChannelData(0);
+            const rightChannel = audioBuffer.getChannelData(1);
+
+            // DataView is good for reading multi-byte numbers from an ArrayBuffer/Uint8Array
+            const dataView = new DataView(payloadBytes.buffer, payloadBytes.byteOffset, payloadBytes.byteLength);
+
+            for (let i = 0; i < numFrames; i++) {
+                // Read 16-bit signed int, little endian
+                const leftSample = dataView.getInt16(i * 4, true);     // Offset i*4 bytes, true for little-endian
+                const rightSample = dataView.getInt16(i * 4 + 2, true); // Offset i*4 + 2 bytes
+
+                // Convert to float in range [-1.0, 1.0]
+                leftChannel[i] = leftSample / 32768.0;
+                rightChannel[i] = rightSample / 32768.0;
+            }
+
+            audioQueue.push(audioBuffer);
+            bufferQueueLengthElem.textContent = audioQueue.length;
+            schedulePlayback();
+        }
+
+        function schedulePlayback() {
+            if (isPlaying || audioQueue.length === 0 || !audioContext || audioContext.state !== 'running') {
+                return;
+            }
+
+            const bufferToPlay = audioQueue.shift();
+            bufferQueueLengthElem.textContent = audioQueue.length;
+
+            const source = audioContext.createBufferSource();
+            source.buffer = bufferToPlay;
+            source.connect(audioContext.destination);
+
+            // Ensure smooth scheduling
+            const currentTime = audioContext.currentTime;
+            if (nextPlayTime < currentTime) {
+                // log(`Next play time (${nextPlayTime.toFixed(2)}s) is in the past (current: ${currentTime.toFixed(2)}s). Resetting to now.`, "warn");
+                nextPlayTime = currentTime;
+            }
+
+            // Add a small buffer time if it's the very first play, to allow some data to accumulate
+            // This is a very simple buffering strategy. More complex ones might wait for a certain queue size.
+            if (nextPlayTime === currentTime && packetCounter <= 2) { // Only for the very first few packets
+                nextPlayTime += 0.05; // Small delay to allow a bit of buffering
+            }
+
+            source.start(nextPlayTime);
+            nextPlayTimeScheduledElem.textContent = `${nextPlayTime.toFixed(2)}s (starts in ${(nextPlayTime - currentTime).toFixed(2)}s)`;
+
+            nextPlayTime += bufferToPlay.duration;
+            isPlaying = true;
+
+            source.onended = () => {
+                isPlaying = false;
+                // Immediately try to schedule the next one if available
+                schedulePlayback();
+            };
+        }
+
+        // Update AudioContext time display
+        setInterval(() => {
+            if (audioContext && audioContext.state === 'running') {
+                audioContextTimeElem.textContent = `${audioContext.currentTime.toFixed(2)}s`;
+            } else {
+                audioContextTimeElem.textContent = `N/A (State: ${audioContext ? audioContext.state : 'null'})`;
+            }
+        }, 500);
+
+
+        // Initialize Protobuf parser on page load
+        window.onload = async () => {
+            log("Page loaded. Initializing Protobuf schema...");
+            await initProtobuf();
+            // Add a small delay to ensure protobuf is fully ready, or check PacketMessage directly
+            setTimeout(() => {
+                if (PacketMessage) {
+                    connectBtn.disabled = false;
+                    log("Ready to connect.", "info");
+                } else {
+                    log("Protobuf initialization might have failed. Connect button remains disabled.", "error");
+                }
+            }, 100); // Small delay for safety, usually not needed with await.
+
+            // Attempt to initialize AudioContext on user interaction (required by some browsers)
+            // We'll primarily do it on connect, but this is a fallback.
+            const initAudioOnFirstInteraction = () => {
+                if (!audioContext) {
+                    initAudioContext();
+                }
+                document.body.removeEventListener('click', initAudioOnFirstInteraction);
+                document.body.removeEventListener('keydown', initAudioOnFirstInteraction);
+            };
+            document.body.addEventListener('click', initAudioOnFirstInteraction);
+            document.body.addEventListener('keydown', initAudioOnFirstInteraction);
+        };
+
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,30 @@
+Code generated using gemini-2.5-pro-preview-05-06
+
+Workers was generated using the following prompt:
+
+Please write a WebSocket re-broadcast implementation using Cloudflare Workers that will do the following:
+1. A Publisher will connect to the Worker and establish a WebSocket connection;
+2. An arbitrary number of Subscribers will connect to the Worker, and the Workers will broadcast messages received from the publisher to subscribers;
+3. This one-to-many relationships should be separated by an randomly generated ID indicated as part of the URL;
+4. Be sure to handle the situation where the subscribers may connect before the publisher does;
+5. Do not send anything on the websocket other than what the publisher sent.
+
+Please only focus on the Workers implementation with no HTML/demo page.
+
+---
+
+src/player.html was generated using the following prompt:
+
+I have a WebSocket endpoint that will send 48khz PCM stereo audio with the following message encoding scheme:
+```
+syntax = "proto3";
+
+message Packet {
+    uint32 sequenceNumber = 1;
+    uint32 timestamp = 2;
+
+    bytes payload = 5;
+}
+
+```
+Please write a single HTML/JavaScript page that will connect to that endpoint and play the audio from the WebSocket. Note that WebSocket will send the message in protobuf binary format.

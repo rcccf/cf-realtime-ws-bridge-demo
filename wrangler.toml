@@ -1,0 +1,16 @@
+name = "websocket-rebroadcast"
+main = "src/worker.js"
+compatibility_date = "2023-10-30" # Use a recent date
+
+[durable_objects]
+bindings = [
+  { name = "BROADCAST_ROOM", class_name = "BroadcastRoom" }
+]
+
+[[migrations]]
+tag = "v1" # A unique identifier for this migration
+new_classes = ["BroadcastRoom"] # The Durable Object class(es) being introduced
+
+[[rules]]
+type = "Text"
+globs = ["**/*.html"]
