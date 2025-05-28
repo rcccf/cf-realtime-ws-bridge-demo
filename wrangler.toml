@@ -4,12 +4,12 @@ compatibility_date = "2023-10-30" # Use a recent date
 
 [durable_objects]
 bindings = [
-  { name = "BROADCAST_ROOM", class_name = "BroadcastRoom" }
+  { name = "WEBSOCKET_BRIDGE", class_name = "WebSocketBridge" }
 ]
 
 [[migrations]]
 tag = "v1" # A unique identifier for this migration
-new_classes = ["BroadcastRoom"] # The Durable Object class(es) being introduced
+new_classes = ["WebSocketBridge"] # The Durable Object class(es) being introduced
 
 [[rules]]
 type = "Text"

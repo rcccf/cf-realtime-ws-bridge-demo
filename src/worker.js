@@ -1,157 +1,114 @@
 import playerHtml from "./player.html";
 import { DurableObject } from "cloudflare:workers";
 
-// Durable Object Class: BroadcastRoom
-export class BroadcastRoom extends DurableObject {
+export class WebSocketBridge extends DurableObject {
   constructor(state, env) {
     super(state, env);
 
     this.state = state;
     this.env = env;
-    this.publisher = null;
-    this.subscribers = new Set(); // Stores WebSocket objects for subscribers
-    this.channelId = null; // Will be set from the instance name
-
-    // We need to ensure that operations like adding/removing WebSockets
-    // and broadcasting messages are serialized for a given room instance.
-    // `blockConcurrencyWhile` ensures that only one operation runs at a time
-    // for this specific Durable Object instance.
-    this.state.blockConcurrencyWhile(async () => {
-      // Initialize channelId from the Durable Object's name if not already set.
-      // The name is derived from the `idFromName(channelId)` call in the main worker.
-      if (!this.channelId) {
-        this.channelId = this.state.id.toString(); // Or use a custom naming scheme if preferred
-      }
-    });
   }
 
-  // Helper to broadcast a message to all subscribers
-  broadcast(message, excludeWs = null) {
-    this.subscribers.forEach((sub) => {
-      if (sub !== excludeWs) {
-        try {
-          sub.send(message);
-        } catch (error) {
-          // Error sending, likely client disconnected abruptly. Remove them.
-          console.error(
-            `Error sending to subscriber in room ${this.channelId}:`,
-            error.message
-          );
-          this.subscribers.delete(sub);
-          // No need to explicitly close `sub` here, its `close` event handler will do cleanup.
-        }
-      }
-    });
-  }
-
-  // Handles new WebSocket connections routed to this Durable Object instance
+  // Handles HTTP requests to the Durable Object, primarily for WebSocket upgrades.
   async fetch(request) {
     const url = new URL(request.url);
-    const role = url.pathname.split("/")[3]; // e.g. /ws/<channel_id>/<role>
+    // Path expected: /ws/:id/:role where :role is "publish" or "subscribe"
+    // For example: /ws/session123/publish
+    const pathParts = url.pathname.split("/");
+
+    if (pathParts.length < 4 || pathParts[1] !== "ws") {
+      return new Response("Malformed WebSocket URL. Expected /ws/:id/:role", {
+        status: 400,
+      });
+    }
+    const role = pathParts[3]; // "publish" or "subscribe"
 
     if (request.headers.get("Upgrade") !== "websocket") {
-      return new Response("Expected WebSocket upgrade", { status: 426 });
+      return new Response("Expected a WebSocket upgrade request", {
+        status: 426,
+      }); // 426 Upgrade Required
     }
 
-    const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair);
-
-    server.accept();
+    // Create a new WebSocket pair
+    const { 0: client, 1: server } = new WebSocketPair();
 
     if (role === "publish") {
-      await this.handlePublisher(server);
+      // Check if a publisher already exists for this Durable Object instance (room ID)
+      const existingPublishers = this.state.getWebSockets("publisher");
+      if (existingPublishers.length > 0) {
+        // A publisher is already connected. Reject the new connection.
+        // We don't use server.close() here; returning a non-101 response handles rejection.
+        return new Response("Publisher already exists for this ID.", {
+          status: 409,
+        }); // Conflict
+      }
+      // Accept the WebSocket and tag it as "publisher". This enables hibernation.
+      await this.state.acceptWebSocket(server, ["publisher"]);
     } else if (role === "subscribe") {
-      await this.handleSubscriber(server);
+      // Accept the WebSocket and tag it as "subscriber".
+      await this.state.acceptWebSocket(server, ["subscriber"]);
     } else {
-      server.close(
-        1008,
-        "Invalid role specified. Use 'publish' or 'subscribe'."
-      );
-      return new Response("Invalid role", { status: 400 });
+      // Invalid role in the URL
+      return new Response("Invalid role. Must be 'publish' or 'subscribe'.", {
+        status: 400,
+      });
     }
 
-    return new Response(null, {
-      status: 101,
-      webSocket: client, // Give the client-side socket back to Cloudflare's runtime
-    });
+    // Return the client's end of the WebSocket to the runtime, completing the upgrade.
+    return new Response(null, { status: 101, webSocket: client });
   }
 
-  async handlePublisher(ws) {
-    // Only one publisher per room. If one exists, close the old one.
-    if (this.publisher) {
-      console.log(
-        `Room ${this.channelId}: New publisher connected, closing old one.`
-      );
-      this.publisher.close(1012, "New publisher connected, replacing old one."); // 1012: Service Restart
+  // Called when a WebSocket connected to this Durable Object instance receives a message.
+  async webSocketMessage(ws, message) {
+    // Identify if the message is from the publisher using its tag.
+    const tags = this.state.getTags(ws);
+
+    if (tags.includes("publisher")) {
+      // This message is from the publisher. Broadcast it to all subscribers.
+      const subscribers = this.state.getWebSockets("subscriber");
+      if (subscribers.length > 0) {
+        // console.log(`Broadcasting message from publisher in room ${this.state.id.toString()} to ${subscribers.length} subscribers.`);
+        subscribers.forEach((subscriber) => {
+          try {
+            // Per requirement: "Do not send anything on the websocket other than what the publisher sent"
+            subscriber.send(message);
+          } catch (e) {
+            // Handle potential errors if a subscriber has disconnected abruptly.
+            // The runtime will eventually call webSocketClose/webSocketError for this subscriber.
+            console.error(
+              `Failed to send message to subscriber in room ${this.state.id.toString()}: ${
+                e.message
+              }`
+            );
+            // Optionally attempt to close the problematic socket if an error indicates it's dead
+            if (
+              subscriber.readyState === WebSocket.OPEN ||
+              subscriber.readyState === WebSocket.CONNECTING
+            ) {
+              subscriber.close(1011, "Error during broadcast.");
+            }
+          }
+        });
+      }
     }
-    this.publisher = ws;
-    console.log(`Room ${this.channelId}: Publisher connected.`);
-
-    ws.addEventListener("message", async (event) => {
-      // Requirement 5: Do not send anything on the websocket other than what the publisher sent.
-      // So, we directly forward event.data
-      //   console.log(`Room ${this.channelId}: Publisher sent message, broadcasting to ${this.subscribers.size} subscribers.`);
-      this.broadcast(event.data);
-    });
-
-    ws.addEventListener("close", async (event) => {
-      console.log(
-        `Room ${this.channelId}: Publisher disconnected. Code: ${event.code}, Reason: ${event.reason}`
-      );
-      if (this.publisher === ws) {
-        // Ensure it's the current publisher
-        this.publisher = null;
-      }
-      // Optionally notify subscribers publisher has left, but requirement 5 says only send what publisher sent.
-      // So, we don't send any notification here.
-    });
-
-    ws.addEventListener("error", async (error) => {
-      console.error(
-        `Room ${this.channelId}: Publisher WebSocket error:`,
-        error.message
-      );
-      if (this.publisher === ws) {
-        this.publisher = null;
-      }
-    });
+    // Messages from subscribers are ignored as per the one-way (publisher to subscribers) model.
   }
 
-  async handleSubscriber(ws) {
-    this.subscribers.add(ws);
+  // Called when a WebSocket connected to this DO closes.
+  async webSocketClose(ws, code, reason, wasClean) {
     console.log(
-      `Room ${this.channelId}: Subscriber connected. Total subscribers: ${this.subscribers.size}`
+      `WebSocket closed in room ${this.state.id.toString()}: code ${code}, reason "${reason}", wasClean ${wasClean}`
     );
+    // The WebSocket is automatically removed from `state.getWebSockets()`.
+    // If it was the publisher, `getWebSockets("publisher")` will now be empty, allowing a new publisher.
+  }
 
-    // Requirement 4: Handle subscribers connecting before publisher.
-    // This is inherently handled. They are just added to the set.
-    // When the publisher eventually connects and sends a message, they will receive it.
-
-    ws.addEventListener("message", async (event) => {
-      // Subscribers are not supposed to send messages in this model.
-      // We could close the connection or just ignore it.
-      console.log(
-        `Room ${this.channelId}: Received message from subscriber (ignoring):`,
-        event.data
-      );
-      // ws.send("Subscribers are not allowed to send messages.");
-      // ws.close(1008, "Subscribers cannot send messages.");
-    });
-
-    ws.addEventListener("close", async (event) => {
-      this.subscribers.delete(ws);
-      console.log(
-        `Room ${this.channelId}: Subscriber disconnected. Code: ${event.code}, Reason: ${event.reason}. Remaining subscribers: ${this.subscribers.size}`
-      );
-    });
-
-    ws.addEventListener("error", async (error) => {
-      console.error(
-        `Room ${this.channelId}: Subscriber WebSocket error:`,
-        error.message
-      );
-      this.subscribers.delete(ws);
-    });
+  // Called when an error occurs on a WebSocket connected to this DO.
+  async webSocketError(ws, error) {
+    console.error(
+      `WebSocket error in room ${this.state.id.toString()}: ${error.message}`
+    );
+    // The WebSocket is automatically closed by the runtime after this handler, then webSocketClose is called.
   }
 }
 
@@ -189,8 +146,8 @@ export default {
 
       // Get (or create if not exists) the Durable Object instance for this channelId
       // `idFromName` ensures that the same channelId always maps to the same Durable Object instance.
-      const doId = env.BROADCAST_ROOM.idFromName(channelId);
-      const stub = env.BROADCAST_ROOM.get(doId);
+      const doId = env.WEBSOCKET_BRIDGE.idFromName(channelId);
+      const stub = env.WEBSOCKET_BRIDGE.get(doId);
 
       // Forward the request to the Durable Object.
       // The Durable Object's fetch handler will manage the WebSocket handshake.
@@ -203,12 +160,14 @@ export default {
         },
       });
     } else if (url.pathname === "/") {
+      const protocol = url.protocol === "https:" ? "wss:" : "ws:";
       return new Response(
         `Welcome to WebSocket Re-broadcaster!
-Connect a publisher to:   wss://${url.hostname}/ws/<your-random-channel-id>/publish
-Connect subscribers to: wss://${url.hostname}/ws/<your-random-channel-id>/subscribe
+Connect a publisher to: ${protocol}//${url.host}/ws/<your-random-channel-id>/publish
+Connect subscribers to: ${protocol}//${url.host}/ws/<your-random-channel-id>/subscribe
 
-An example WebSocket player is available at /player
+A publisher can be the endpoint parameter for Cloudflare Realtime API's /tracks/subscribe
+A subscriber can be an example WebSocket player available at /player
 
 Replace <your-random-channel-id> with a unique ID for your broadcast room (e.g., a UUID).
 All clients (publisher and subscribers) for the same room must use the same channel ID.`,

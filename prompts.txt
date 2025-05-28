@@ -1,21 +1,10 @@
 Code generated using gemini-2.5-pro-preview-05-06
 
-Workers was generated using the following prompt:
-
-Please write a WebSocket re-broadcast implementation using Cloudflare Workers that will do the following:
-1. A Publisher will connect to the Worker and establish a WebSocket connection;
-2. An arbitrary number of Subscribers will connect to the Worker, and the Workers will broadcast messages received from the publisher to subscribers;
-3. This one-to-many relationships should be separated by an randomly generated ID indicated as part of the URL;
-4. Be sure to handle the situation where the subscribers may connect before the publisher does;
-5. Do not send anything on the websocket other than what the publisher sent.
-
-Please only focus on the Workers implementation with no HTML/demo page.
-
 ---
 
 src/player.html was generated using the following prompt:
 
-I have a WebSocket endpoint that will send 48khz PCM stereo audio with the following message encoding scheme:
+I have a WebSocket endpoint that will send 48khz 16-bit signed PCM stereo audio with the following message encoding scheme:
 ```
 syntax = "proto3";
 
@@ -27,4 +16,35 @@ message Packet {
 }
 
 ```
-Please write a single HTML/JavaScript page that will connect to that endpoint and play the audio from the WebSocket. Note that WebSocket will send the message in protobuf binary format.
+Please write a single HTML/JavaScript page that will connect to that endpoint and play the audio from the WebSocket.
+
+Requirement:
+1. WebSocket will send the message in protobuf binary format;
+2. The Web Workers should connect to the WebSocket and handle protobuf decoding;
+3. The main thread should only have to handle UI update and audio playback;
+4. Ensure to embed the Web Workers in a <script> block for better readability instead of string template;
+5. Include a area to show debug info, such as logs, connection state change, packet loss, buffer/queue, sequence number, etc;
+6. Style the web page minimally for a modern look.
+
+Pitfalls:
+1. Ensure the Web Workers will importScripts for protobuf;
+2. If using Int16Array, ensure start offset of Int16Array is a multiple of 2;
+3. Use AudioWorkletNode as ScriptProcessorNode is deprecated;
+4. Avoid thrashing the main thread because of too many UI updates;
+5. Ensure to update the UI correctly when the Disconnect button is clicked.
+
+---
+
+Workers was generated using the following prompt:
+
+Please write a WebSocket bridge implementation using Cloudflare Workers that will do the following:
+1. A Publisher will connect to the Worker and establish a WebSocket connection (for example, Cloudflare Realtime API's WebRTC to WebSocket bridge);
+2. An arbitrary number of Subscribers will connect to the Worker, and the Workers will broadcast messages received from the publisher to subscribers;
+3. This one-to-many relationships should be separated by an randomly generated ID indicated as part of the URL (e.g. /ws/hello-world/subscribe);
+4. Be sure to handle the situation where the subscribers may connect before the publisher does;
+5. Do not send anything on the websocket other than what the publisher sent;
+6. Ensure to use the WebSocket Hibernation API (https://developers.cloudflare.com/durable-objects/best-practices/websockets/) correctly (such as tagging);
+7. Include an endpoint at /player that will display an demo WebSocket audio player from src/player.html by `import playerContent from './player.html'`. Assume the file already exists, do not mock or attempt to implement this HTML page;
+8. Display instructions at /.
+
+Please only focus on the Workers implementation with no HTML/demo page.

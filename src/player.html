@@ -7,414 +7,596 @@
     <title>WebSocket Audio Player</title>
     <style>
         body {
-            font-family: sans-serif;
-            margin: 20px;
-            background-color: #f4f4f4;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f7f9;
             color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
         }
 
-        #controls,
-        #status {
-            margin-bottom: 20px;
-            padding: 15px;
+        .container {
             background-color: #fff;
+            padding: 25px;
             border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 700px;
+        }
+
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .controls,
+        .stats {
+            margin-bottom: 20px;
         }
 
         label {
-            display: inline-block;
-            margin-right: 10px;
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
         }
 
         input[type="text"] {
-            padding: 8px;
+            width: calc(100% - 22px);
+            padding: 10px;
+            margin-bottom: 15px;
             border: 1px solid #ccc;
             border-radius: 4px;
-            min-width: 300px;
+            box-sizing: border-box;
         }
 
         button {
-            padding: 10px 15px;
-            margin-left: 10px;
-            background-color: #007bff;
-            color: white;
+            padding: 10px 18px;
+            margin-right: 10px;
             border: none;
             border-radius: 4px;
             cursor: pointer;
+            font-size: 1em;
+            transition: background-color 0.2s ease;
         }
 
-        button:hover {
-            background-color: #0056b3;
+        #connectBtn {
+            background-color: #3498db;
+            color: white;
         }
 
-        button:disabled {
-            background-color: #ccc;
-            cursor: not-allowed;
+        #connectBtn:hover {
+            background-color: #2980b9;
         }
 
-        #status p {
-            margin: 5px 0;
+        #disconnectBtn {
+            background-color: #e74c3c;
+            color: white;
         }
 
-        .log-message {
-            padding: 8px;
-            margin-bottom: 5px;
-            border-radius: 4px;
-            font-size: 0.9em;
+        #disconnectBtn:hover {
+            background-color: #c0392b;
         }
 
-        .log-info {
-            background-color: #e7f3fe;
-            border-left: 3px solid #2196F3;
-        }
-
-        .log-error {
-            background-color: #ffebee;
-            border-left: 3px solid #f44336;
-        }
-
-        .log-success {
-            background-color: #e8f5e9;
-            border-left: 3px solid #4CAF50;
-        }
-
-        .log-warn {
-            background-color: #fff3e0;
-            border-left: 3px solid #ff9800;
-        }
-
-        #logContainer {
-            max-height: 300px;
-            overflow-y: auto;
-            border: 1px solid #eee;
+        #debugArea {
+            width: 100%;
+            height: 200px;
             padding: 10px;
-            background-color: #fafafa;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #ecf0f1;
+            font-family: "Courier New", Courier, monospace;
+            font-size: 0.9em;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            box-sizing: border-box;
+            margin-top: 8px;
+        }
+
+        .stats p {
+            margin: 5px 0;
+            font-size: 0.95em;
+        }
+
+        .status-dot {
+            height: 12px;
+            width: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        .status-disconnected {
+            background-color: #e74c3c;
+        }
+
+        .status-connecting {
+            background-color: #f39c12;
+        }
+
+        .status-connected {
+            background-color: #2ecc71;
         }
     </style>
-    <!-- Load protobuf.js library -->
-    <script src="https://cdn.jsdelivr.net/npm/protobufjs@7.2.5/dist/protobuf.min.js"></script>
 </head>
 
 <body>
+    <div class="container">
+        <h1>WebSocket Audio Player</h1>
 
-    <h1>WebSocket Audio Player (48kHz PCM Stereo)</h1>
+        <div class="controls">
+            <label for="wsUrl">WebSocket URL:</label>
+            <input type="text" id="wsUrl" value="">
+            <button id="connectBtn">Connect</button>
+            <button id="disconnectBtn" disabled>Disconnect</button>
+        </div>
 
-    <div id="controls">
-        <label for="wsUrl">WebSocket URL:</label>
-        <input type="text" id="wsUrl" value="ws://localhost:8787/ws/hello-world/subscribe">
-        <button id="connectBtn">Connect</button>
-        <button id="disconnectBtn" disabled>Disconnect</button>
+        <div class="stats">
+            <p>Status: <span class="status-dot status-disconnected"></span><span
+                    id="connectionStatus">Disconnected</span></p>
+            <p>Sequence Number: <span id="sequenceNumber">N/A</span></p>
+            <p>Timestamp: <span id="timestamp">N/A</span></p>
+            <p>Packets Lost: <span id="packetsLost">0</span></p>
+            <p>Audio Queue (samples): <span id="audioQueueSize">0</span></p>
+        </div>
+
+        <label for="debugArea">Logs:</label>
+        <div id="debugArea"></div>
     </div>
 
-    <div id="status">
-        <p><strong>Status:</strong> <span id="connectionStatus">Disconnected</span></p>
-        <p><strong>Packets Received:</strong> <span id="packetsReceived">0</span></p>
-        <p><strong>Last Sequence:</strong> <span id="lastSequence">-</span></p>
-        <p><strong>Buffer Queue Length:</strong> <span id="bufferQueueLength">0</span></p>
-        <p><strong>Audio Context Time:</strong> <span id="audioContextTime">0.00s</span></p>
-        <p><strong>Next Play Time:</strong> <span id="nextPlayTimeScheduled">0.00s</span></p>
-    </div>
+    <script type="javascript/worker" id="workerScript">
+      // Web Worker Script
+      let ws;
+      let Packet;
+      let lastSequenceNumber = 0;
+      let packetsLost = 0;
+      let connected = false;
 
-    <div id="logContainer">
-        <p><em>Logs will appear here...</em></p>
-    </div>
+      const protoDefinition = `
+        syntax = "proto3";
+        message Packet {
+            uint32 sequenceNumber = 1;
+            uint32 timestamp = 2;
+            bytes payload = 5;
+        }
+      `;
+
+      function logToMain(message) {
+          postMessage({ type: 'log', data: message });
+      }
+
+      function updateStatsInMain(stats) {
+          postMessage({ type: 'stats', data: stats });
+      }
+
+      self.onmessage = function(event) {
+          const { command, url } = event.data;
+
+          if (command === 'connect') {
+              if (connected) {
+                  logToMain('Worker: Already connected or connecting.');
+                  return;
+              }
+              logToMain(`Worker: Connecting to ${url}`);
+              postMessage({ type: 'status', data: 'Connecting' });
+
+              if (typeof protobuf === 'undefined') {
+                  try {
+                      importScripts('https://cdn.jsdelivr.net/npm/protobufjs@7.2.5/dist/protobuf.min.js');
+                      logToMain('Worker: protobuf.js loaded.');
+                  } catch (e) {
+                      logToMain(`Worker: Error loading protobuf.js: ${e.message}`);
+                      postMessage({ type: 'status', data: 'Error' });
+                      postMessage({ type: 'error', data: 'Failed to load protobuf.js in worker.' });
+                      return;
+                  }
+              }
+
+              if (!Packet) {
+                  try {
+                      const root = protobuf.parse(protoDefinition).root;
+                      Packet = root.lookupType("Packet");
+                      logToMain('Worker: Protobuf schema parsed.');
+                  } catch (e) {
+                      logToMain(`Worker: Error parsing protobuf schema: ${e.message}`);
+                      postMessage({ type: 'status', data: 'Error' });
+                      postMessage({ type: 'error', data: 'Failed to parse protobuf schema.' });
+                      return;
+                  }
+              }
+
+              ws = new WebSocket(url);
+              ws.binaryType = 'arraybuffer';
+
+              ws.onopen = () => {
+                  connected = true;
+                  logToMain('Worker: WebSocket connection established.');
+                  postMessage({ type: 'status', data: 'Connected' });
+                  lastSequenceNumber = 0;
+                  packetsLost = 0;
+                  updateStatsInMain({ sequenceNumber: 'N/A', timestamp: 'N/A', packetsLost: 0 });
+              };
+
+              ws.onmessage = (msgEvent) => {
+                  if (msgEvent.data instanceof ArrayBuffer) {
+                      try {
+                          const uint8Array = new Uint8Array(msgEvent.data);
+                          const decodedPacket = Packet.decode(uint8Array);
+
+                          if (lastSequenceNumber !== 0 && decodedPacket.sequenceNumber > lastSequenceNumber + 1) {
+                              const lostCount = decodedPacket.sequenceNumber - (lastSequenceNumber + 1);
+                              packetsLost += lostCount;
+                              logToMain(`Worker: Lost ${lostCount} packet(s). Expected ${lastSequenceNumber + 1}, got ${decodedPacket.sequenceNumber}.`);
+                          }
+                          lastSequenceNumber = decodedPacket.sequenceNumber;
+
+                          const payloadBuffer = decodedPacket.payload.buffer.slice(
+                            decodedPacket.payload.byteOffset,
+                            decodedPacket.payload.byteOffset + decodedPacket.payload.byteLength
+                          );
+
+                          postMessage({ type: 'audioData', data: payloadBuffer }, [payloadBuffer]);
+                          updateStatsInMain({
+                              sequenceNumber: decodedPacket.sequenceNumber,
+                              timestamp: decodedPacket.timestamp,
+                              packetsLost: packetsLost
+                          });
+
+                      } catch (e) {
+                          logToMain(`Worker: Error decoding packet: ${e.message}`);
+                      }
+                  } else {
+                      logToMain(`Worker: Received non-ArrayBuffer message: ${typeof msgEvent.data}`);
+                  }
+              };
+
+              ws.onerror = (error) => {
+                  logToMain(`Worker: WebSocket error: ${error.message || 'Unknown error'}`);
+                  postMessage({ type: 'status', data: 'Error' });
+                  postMessage({ type: 'error', data: `WebSocket error: ${error.message || 'Unknown error'}` });
+                  connected = false;
+              };
+
+              ws.onclose = (event) => {
+                  connected = false;
+                  logToMain(`Worker: WebSocket connection closed. Code: ${event.code}, Reason: ${event.reason || 'No reason given'}`);
+                  postMessage({ type: 'status', data: 'Disconnected' });
+                  postMessage({ type: 'closed' });
+              };
+
+          } else if (command === 'disconnect') {
+              if (ws) {
+                  logToMain('Worker: Disconnecting WebSocket...');
+                  ws.close();
+              }
+              connected = false;
+              lastSequenceNumber = 0;
+              packetsLost = 0;
+              postMessage({ type: 'status', data: 'Disconnected' });
+              updateStatsInMain({ sequenceNumber: 'N/A', timestamp: 'N/A', packetsLost: 0 });
+          }
+      };
+    </script>
+
+    <script type="text/js-worklet" id="audioWorkletScript">
+      // AudioWorklet Processor Script
+      class AudioPlayerProcessor extends AudioWorkletProcessor {
+          constructor(options) {
+              super(options);
+              this.audioQueue = [];
+              this.samplesPerBufferUpdate = (options.processorOptions && options.processorOptions.sampleRate) || 48000;
+              this.currentFrameCountForUpdate = 0;
+              this.totalQueuedSamples = 0;
+
+              this.port.onmessage = (event) => {
+                  if (event.data.type === 'audioData') {
+                      const arrayBuffer = event.data.data;
+                      if (arrayBuffer.byteLength % 4 !== 0) {
+                          console.warn(`AudioWorklet: Received ArrayBuffer with invalid length: ${arrayBuffer.byteLength}`);
+                          return;
+                      }
+                      const int16View = new Int16Array(arrayBuffer);
+                      const numSamplesPerChannel = int16View.length / 2;
+
+                      if (numSamplesPerChannel === 0) return;
+
+                      const left = new Float32Array(numSamplesPerChannel);
+                      const right = new Float32Array(numSamplesPerChannel);
+
+                      for (let i = 0; i < numSamplesPerChannel; i++) {
+                          left[i] = int16View[i * 2] / 32768.0;
+                          right[i] = int16View[i * 2 + 1] / 32768.0;
+                      }
+                      this.audioQueue.push({ left, right, samplesRead: 0 });
+                      this.totalQueuedSamples += numSamplesPerChannel;
+                  }
+              };
+          }
+
+          process(inputs, outputs, parameters) {
+              const output = outputs[0];
+              // Ensure the output and necessary channels are available
+              if (!output || !output[0] || !output[1]) {
+                  console.warn('AudioPlayerProcessor: Output not configured correctly for stereo playback or not available.');
+                  // Fill with silence if output[0] exists but not output[1] for some reason (should not happen with correct config)
+                  if (output && output[0]) {
+                    const bufferSize = output[0].length;
+                     for (let i = 0; i < bufferSize; i++) {
+                        output[0][i] = 0;
+                        if(output[1]) output[1][i] = 0; // Should be safe due to outer check, but being defensive
+                     }
+                  }
+                  return true; // Keep processor alive
+              }
+
+              const outputLeft = output[0];
+              const outputRight = output[1];
+              const bufferSize = outputLeft.length;
+
+              let samplesProcessed = 0;
+
+              while (samplesProcessed < bufferSize && this.audioQueue.length > 0) {
+                  const currentChunk = this.audioQueue[0];
+                  const samplesAvailableInChunk = currentChunk.left.length - currentChunk.samplesRead;
+                  const samplesToCopy = Math.min(bufferSize - samplesProcessed, samplesAvailableInChunk);
+
+                  outputLeft.set(currentChunk.left.subarray(currentChunk.samplesRead, currentChunk.samplesRead + samplesToCopy), samplesProcessed);
+                  outputRight.set(currentChunk.right.subarray(currentChunk.samplesRead, currentChunk.samplesRead + samplesToCopy), samplesProcessed);
+
+                  currentChunk.samplesRead += samplesToCopy;
+                  samplesProcessed += samplesToCopy;
+                  this.totalQueuedSamples -= samplesToCopy;
+
+                  if (currentChunk.samplesRead >= currentChunk.left.length) {
+                      this.audioQueue.shift();
+                  }
+              }
+
+              if (samplesProcessed < bufferSize) {
+                  for (let i = samplesProcessed; i < bufferSize; i++) {
+                      outputLeft[i] = 0;
+                      outputRight[i] = 0;
+                  }
+              }
+
+              this.currentFrameCountForUpdate += bufferSize;
+              if (this.currentFrameCountForUpdate >= this.samplesPerBufferUpdate) {
+                  this.currentFrameCountForUpdate = 0;
+                  this.port.postMessage({ type: 'debug', audioQueueSize: this.totalQueuedSamples });
+              }
+
+              return true;
+          }
+      }
+
+      registerProcessor('audio-player-processor', AudioPlayerProcessor);
+    </script>
 
     <script>
+        // Main Thread JavaScript
         const wsUrlInput = document.getElementById('wsUrl');
         const connectBtn = document.getElementById('connectBtn');
         const disconnectBtn = document.getElementById('disconnectBtn');
-        const connectionStatusElem = document.getElementById('connectionStatus');
-        const packetsReceivedElem = document.getElementById('packetsReceived');
-        const lastSequenceElem = document.getElementById('lastSequence');
-        const bufferQueueLengthElem = document.getElementById('bufferQueueLength');
-        const audioContextTimeElem = document.getElementById('audioContextTime');
-        const nextPlayTimeScheduledElem = document.getElementById('nextPlayTimeScheduled');
-        const logContainer = document.getElementById('logContainer');
+        const debugArea = document.getElementById('debugArea');
+        const connectionStatusEl = document.getElementById('connectionStatus');
+        const statusDot = connectionStatusEl.previousElementSibling;
 
-        let websocket = null;
-        let audioContext = null;
-        let PacketMessage = null; // Will hold the Protobuf message type
-        let audioQueue = [];
-        let nextPlayTime = 0;
-        let isPlaying = false;
-        let packetCounter = 0;
-        let expectedSequenceNumber = 0; // For checking sequence
+        const sequenceNumberEl = document.getElementById('sequenceNumber');
+        const timestampEl = document.getElementById('timestamp');
+        const packetsLostEl = document.getElementById('packetsLost');
+        const audioQueueSizeEl = document.getElementById('audioQueueSize');
 
-        const SAMPLE_RATE = 48000;
-        const NUM_CHANNELS = 2;
+        let audioContext;
+        let audioWorker;
+        let audioWorkletNode;
+        let worker;
 
-        // Protobuf schema definition
-        const protoDefinition = `
-            syntax = "proto3";
+        const MAX_LOG_LINES = 100;
+        let logLines = [];
 
-            message Packet {
-                uint32 sequenceNumber = 1;
-                uint32 timestamp = 2;
-                bytes payload = 5;
+        wsUrlInput.value = location.protocol === 'https:' ? 'wss://' : 'ws://' + location.host + '/ws/hello-world/subscribe'
+
+        function logMessage(message) {
+            console.log(message);
+            const timestamp = new Date().toLocaleTimeString();
+            logLines.push(`[${timestamp}] ${message}`);
+            if (logLines.length > MAX_LOG_LINES) {
+                logLines.shift();
             }
-        `;
-
-        function log(message, type = 'info') {
-            console.log(`[${type.toUpperCase()}] ${message}`);
-            const p = document.createElement('p');
-            p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-            p.className = `log-message log-${type}`;
-            if (logContainer.firstChild && logContainer.firstChild.textContent === 'Logs will appear here...') {
-                logContainer.innerHTML = ''; // Clear initial message
-            }
-            logContainer.appendChild(p);
-            logContainer.scrollTop = logContainer.scrollHeight; // Auto-scroll
+            debugArea.textContent = logLines.join('\n');
+            debugArea.scrollTop = debugArea.scrollHeight;
         }
 
-        async function initProtobuf() {
-            try {
-                // protobuf is globally available from the CDN
-                // For protobuf.js v7.x.x, use protobuf.parse(source).root
-                if (typeof protobuf === 'undefined' || typeof protobuf.parse === 'undefined') {
-                    log("protobuf.js library not loaded correctly or `protobuf.parse` is not available.", "error");
-                    return;
-                }
-                const parsedResult = protobuf.parse(protoDefinition);
-                const root = parsedResult.root;
-
-                // If your .proto file had a "package my.package;" declaration,
-                // you would use "my.package.Packet"
-                PacketMessage = root.lookupType("Packet");
-                if (!PacketMessage) {
-                    log("Could not find 'Packet' message type in Protobuf schema.", "error");
-                    return;
-                }
-                log("Protobuf schema parsed successfully.", "success");
-            } catch (error) {
-                log(`Error initializing Protobuf: ${error.message}`, "error");
-                console.error("Protobuf init error:", error);
-                PacketMessage = null; // Ensure it's null on error
+        function updateConnectionStatus(status) {
+            connectionStatusEl.textContent = status;
+            statusDot.className = 'status-dot'; // Reset classes
+            switch (status.toLowerCase()) {
+                case 'connected':
+                    statusDot.classList.add('status-connected');
+                    break;
+                case 'connecting':
+                    statusDot.classList.add('status-connecting');
+                    break;
+                case 'disconnected':
+                case 'error':
+                    statusDot.classList.add('status-disconnected');
+                    break;
             }
         }
 
-        function initAudioContext() {
-            if (!audioContext || audioContext.state === 'closed') {
-                audioContext = new (window.AudioContext || window.webkitAudioContext)({
-                    sampleRate: SAMPLE_RATE
-                });
-                nextPlayTime = audioContext.currentTime; // Initialize nextPlayTime
-                log(`AudioContext initialized. Sample rate: ${audioContext.sampleRate}Hz. State: ${audioContext.state}`, "success");
-                if (audioContext.sampleRate !== SAMPLE_RATE) {
-                    log(`Warning: AudioContext sample rate (${audioContext.sampleRate}Hz) does not match desired rate (${SAMPLE_RATE}Hz). Playback might be sped up or slowed down.`, "warn");
-                }
-            }
-            // Resume context if it was suspended by browser policy
-            if (audioContext.state === 'suspended') {
-                audioContext.resume().then(() => {
-                    log('AudioContext resumed.', "success");
-                }).catch(err => {
-                    log(`Error resuming AudioContext: ${err}`, "error");
-                });
-            }
+        function updateStatsDisplay(stats) {
+            if (stats.sequenceNumber !== undefined) sequenceNumberEl.textContent = stats.sequenceNumber;
+            if (stats.timestamp !== undefined) timestampEl.textContent = stats.timestamp;
+            if (stats.packetsLost !== undefined) packetsLostEl.textContent = stats.packetsLost;
+            if (stats.audioQueueSize !== undefined) audioQueueSizeEl.textContent = stats.audioQueueSize;
         }
 
-        connectBtn.onclick = () => {
-            if (!PacketMessage) {
-                log("Protobuf schema not loaded yet. Please wait.", "warn");
-                return;
-            }
+
+        connectBtn.addEventListener('click', () => {
             const url = wsUrlInput.value;
-            log(`Attempting to connect to ${url}...`);
-            websocket = new WebSocket(url);
-            websocket.binaryType = "arraybuffer"; // Important for Protobuf
+            if (!url) {
+                logMessage("Main: WebSocket URL cannot be empty.");
+                return;
+            }
 
-            websocket.onopen = () => {
-                log("WebSocket connected!", "success");
-                connectionStatusElem.textContent = "Connected";
-                connectBtn.disabled = true;
-                disconnectBtn.disabled = false;
-                wsUrlInput.disabled = true;
-                packetCounter = 0;
-                packetsReceivedElem.textContent = packetCounter;
-                lastSequenceElem.textContent = "-";
-                expectedSequenceNumber = 0; // Reset sequence
-                initAudioContext();
-            };
+            logMessage("Main: Initializing connection...");
+            updateConnectionStatus('Connecting');
+            connectBtn.disabled = true;
+            disconnectBtn.disabled = false;
+            wsUrlInput.disabled = true;
 
-            websocket.onmessage = (event) => {
-                if (!audioContext || audioContext.state !== 'running') {
-                    log("AudioContext not ready, discarding packet.", "warn");
-                    // Attempt to re-initialize or resume if it's suspended
-                    if (audioContext && audioContext.state === 'suspended') {
-                        audioContext.resume().catch(err => log(`Error resuming AudioContext on message: ${err}`, "error"));
-                    } else if (!audioContext) {
-                        initAudioContext();
+            updateStatsDisplay({ sequenceNumber: 'N/A', timestamp: 'N/A', packetsLost: 0, audioQueueSize: 0 });
+            logLines = [];
+            debugArea.textContent = '';
+
+
+            try {
+                audioContext = new AudioContext({ sampleRate: 48000 });
+                logMessage(`Main: AudioContext created. Sample rate: ${audioContext.sampleRate}Hz.`);
+
+                const workerScriptContent = document.getElementById('workerScript').textContent;
+                const workerBlob = new Blob([workerScriptContent], { type: 'application/javascript' });
+                worker = new Worker(URL.createObjectURL(workerBlob));
+                logMessage("Main: Web Worker created.");
+
+                worker.onmessage = async (event) => {
+                    const { type, data } = event.data; // Removed 'error' as it was part of 'data' previously
+                    if (type === 'log') {
+                        logMessage(data);
+                    } else if (type === 'status') {
+                        updateConnectionStatus(data);
+                        if (data === 'Connected' && !audioWorkletNode) {
+                            try {
+                                const audioWorkletScriptContent = document.getElementById('audioWorkletScript').textContent;
+                                const audioWorkletBlob = new Blob([audioWorkletScriptContent], { type: 'application/javascript' });
+                                await audioContext.audioWorklet.addModule(URL.createObjectURL(audioWorkletBlob));
+                                logMessage("Main: AudioWorklet module added.");
+
+                                // *** THIS IS THE KEY FIX: outputChannelCount ***
+                                audioWorkletNode = new AudioWorkletNode(audioContext, 'audio-player-processor', {
+                                    numberOfOutputs: 1, // Default is 1, but explicit
+                                    outputChannelCount: [2], // Specify 2 channels for the first (and only) output
+                                    processorOptions: { sampleRate: audioContext.sampleRate }
+                                });
+                                audioWorkletNode.connect(audioContext.destination);
+                                logMessage("Main: AudioWorkletNode created (stereo) and connected to destination.");
+
+                                audioWorkletNode.port.onmessage = (workletEvent) => {
+                                    if (workletEvent.data.type === 'debug') {
+                                        updateStatsDisplay({ audioQueueSize: workletEvent.data.audioQueueSize });
+                                    }
+                                };
+                            } catch (e) {
+                                logMessage(`Main: Error setting up AudioWorklet: ${e.message}`);
+                                updateConnectionStatus('Error');
+                                if (worker) worker.postMessage({ command: 'disconnect' });
+                                cleanupConnection();
+                            }
+                        } else if (data === 'Disconnected' || data === 'Error') {
+                            if (data === 'Error') logMessage("Main: Connection error reported by worker.");
+                            else logMessage("Main: Connection closed by worker.");
+                            cleanupConnection();
+                        }
+                    } else if (type === 'stats') {
+                        updateStatsDisplay(data);
+                    } else if (type === 'audioData') {
+                        if (audioWorkletNode && audioContext.state === 'running') {
+                            audioWorkletNode.port.postMessage({ type: 'audioData', data: data }, [data]);
+                        }
+                    } else if (type === 'error') { // For errors explicitly typed as 'error' from worker
+                        logMessage(`Main: Error from worker: ${event.data.data}`); // Access the error message correctly
+                        updateConnectionStatus('Error');
+                        cleanupConnection();
+                    } else if (type === 'closed') {
+                        logMessage("Main: Worker confirmed WebSocket closed.");
+                        if (connectionStatusEl.textContent !== 'Disconnected') {
+                            cleanupConnection();
+                        }
                     }
-                    return;
+                };
+
+                worker.onerror = (error) => {
+                    logMessage(`Main: Web Worker error: ${error.message}`);
+                    updateConnectionStatus('Error');
+                    cleanupConnection();
+                };
+
+                worker.postMessage({ command: 'connect', url: url });
+
+                if (audioContext.state === 'suspended') {
+                    audioContext.resume().then(() => {
+                        logMessage("Main: AudioContext resumed.");
+                    }).catch(e => logMessage(`Main: Error resuming AudioContext: ${e.message}`));
                 }
 
-                packetCounter++;
-                packetsReceivedElem.textContent = packetCounter;
-
-                try {
-                    const uint8Array = new Uint8Array(event.data);
-                    const decodedMessage = PacketMessage.decode(uint8Array);
-
-                    lastSequenceElem.textContent = decodedMessage.sequenceNumber;
-
-                    if (expectedSequenceNumber !== 0 && decodedMessage.sequenceNumber !== expectedSequenceNumber) {
-                        log(`Packet sequence mismatch! Expected: ${expectedSequenceNumber}, Got: ${decodedMessage.sequenceNumber}. Packets lost: ${decodedMessage.sequenceNumber - expectedSequenceNumber}`, "warn");
-                    }
-                    expectedSequenceNumber = decodedMessage.sequenceNumber + 1;
-
-                    const pcmData = decodedMessage.payload; // This is Uint8Array
-                    processAudioData(pcmData);
-
-                } catch (error) {
-                    log(`Error processing message: ${error}`, "error");
-                    console.error("Message processing error:", error);
-                }
-            };
-
-            websocket.onerror = (error) => {
-                log(`WebSocket error: ${error.message || 'Unknown error'}`, "error");
-                console.error("WebSocket error:", error);
-                // UI updates will be handled by onclose
-            };
-
-            websocket.onclose = (event) => {
-                log(`WebSocket disconnected. Code: ${event.code}, Reason: ${event.reason || 'No reason given'}`, event.wasClean ? "info" : "warn");
-                connectionStatusElem.textContent = "Disconnected";
-                connectBtn.disabled = false;
-                disconnectBtn.disabled = true;
-                wsUrlInput.disabled = false;
-                isPlaying = false;
-                audioQueue = []; // Clear queue on disconnect
-                bufferQueueLengthElem.textContent = audioQueue.length;
-                if (audioContext && audioContext.state !== 'closed') {
-                    // Don't close, allow potential reconnection to reuse it
-                    // audioContext.close().then(() => log("AudioContext closed.", "info"));
-                    // audioContext = null;
-                }
-            };
-        };
-
-        disconnectBtn.onclick = () => {
-            if (websocket) {
-                websocket.close();
-                log("Manual disconnect initiated.");
+            } catch (e) {
+                logMessage(`Main: Error during connection setup: ${e.message}`);
+                updateConnectionStatus('Error');
+                cleanupConnection();
             }
-        };
+        });
 
-        function processAudioData(payloadBytes) {
-            // Assuming S16LE PCM data (16-bit signed integers, little-endian)
-            // Each sample is 2 bytes. Stereo means 2 samples per frame (L, R). So 4 bytes per frame.
-            const numSamples = payloadBytes.length / 2; // Total number of 16-bit samples
-            const numFrames = numSamples / NUM_CHANNELS;
-
-            if (payloadBytes.length === 0) {
-                log("Received empty audio payload.", "warn");
-                return;
+        disconnectBtn.addEventListener('click', () => {
+            logMessage("Main: Disconnect button clicked.");
+            if (worker) {
+                worker.postMessage({ command: 'disconnect' });
             }
-            if (numFrames <= 0) {
-                log(`Invalid audio payload size: ${payloadBytes.length} bytes resulted in ${numFrames} frames.`, "warn");
-                return;
+            // cleanupConnection will be called by the worker's 'status' or 'closed' message,
+            // or immediately if worker is already gone.
+            // However, to make UI responsive immediately for user-initiated disconnect:
+            if (connectionStatusEl.textContent !== 'Disconnected' && connectionStatusEl.textContent !== 'Disconnecting') {
+                updateConnectionStatus('Disconnecting...'); // Intermediate state
+            }
+            // Call cleanup directly to ensure UI updates and resources are freed if worker fails to respond quickly
+            cleanupConnection();
+        });
+
+        function cleanupConnection() {
+            logMessage("Main: Cleaning up connection resources.");
+
+            if (worker) {
+                // Worker's onclose should handle its own WebSocket cleanup.
+                // Terminating worker abruptly might prevent graceful WebSocket closure by worker.
+                // worker.terminate(); // Use if worker becomes unresponsive to 'disconnect' message.
+                // For now, we expect worker to handle 'disconnect' and post 'status' or 'closed'
+                // Setting worker to null indicates to other parts of script that it's no longer active.
+            }
+            // If worker is still there, we've sent disconnect. If it's already null, fine.
+
+            if (audioWorkletNode) {
+                audioWorkletNode.disconnect();
+                // It's good practice to also nullify port listeners if any were directly on audioWorkletNode.port
+                // but here it's managed when audioWorkletNode is nullified.
+                audioWorkletNode = null;
+                logMessage("Main: AudioWorkletNode disconnected.");
+            }
+            if (audioContext && audioContext.state !== 'closed') {
+                audioContext.close().then(() => {
+                    logMessage("Main: AudioContext closed.");
+                    audioContext = null;
+                }).catch(e => {
+                    logMessage(`Main: Error closing AudioContext: ${e.message}`);
+                    audioContext = null; // Still nullify on error
+                });
+            } else if (!audioContext) {
+                // logMessage("Main: AudioContext was already null or closed.");
             }
 
 
-            const audioBuffer = audioContext.createBuffer(NUM_CHANNELS, numFrames, SAMPLE_RATE);
-            const leftChannel = audioBuffer.getChannelData(0);
-            const rightChannel = audioBuffer.getChannelData(1);
+            updateConnectionStatus('Disconnected');
+            connectBtn.disabled = false;
+            disconnectBtn.disabled = true;
+            wsUrlInput.disabled = false;
 
-            // DataView is good for reading multi-byte numbers from an ArrayBuffer/Uint8Array
-            const dataView = new DataView(payloadBytes.buffer, payloadBytes.byteOffset, payloadBytes.byteLength);
-
-            for (let i = 0; i < numFrames; i++) {
-                // Read 16-bit signed int, little endian
-                const leftSample = dataView.getInt16(i * 4, true);     // Offset i*4 bytes, true for little-endian
-                const rightSample = dataView.getInt16(i * 4 + 2, true); // Offset i*4 + 2 bytes
-
-                // Convert to float in range [-1.0, 1.0]
-                leftChannel[i] = leftSample / 32768.0;
-                rightChannel[i] = rightSample / 32768.0;
-            }
-
-            audioQueue.push(audioBuffer);
-            bufferQueueLengthElem.textContent = audioQueue.length;
-            schedulePlayback();
+            // sequenceNumberEl.textContent = 'N/A'; // Keep last known for review
+            // timestampEl.textContent = 'N/A';
+            audioQueueSizeEl.textContent = '0';
         }
-
-        function schedulePlayback() {
-            if (isPlaying || audioQueue.length === 0 || !audioContext || audioContext.state !== 'running') {
-                return;
-            }
-
-            const bufferToPlay = audioQueue.shift();
-            bufferQueueLengthElem.textContent = audioQueue.length;
-
-            const source = audioContext.createBufferSource();
-            source.buffer = bufferToPlay;
-            source.connect(audioContext.destination);
-
-            // Ensure smooth scheduling
-            const currentTime = audioContext.currentTime;
-            if (nextPlayTime < currentTime) {
-                // log(`Next play time (${nextPlayTime.toFixed(2)}s) is in the past (current: ${currentTime.toFixed(2)}s). Resetting to now.`, "warn");
-                nextPlayTime = currentTime;
-            }
-
-            // Add a small buffer time if it's the very first play, to allow some data to accumulate
-            // This is a very simple buffering strategy. More complex ones might wait for a certain queue size.
-            if (nextPlayTime === currentTime && packetCounter <= 2) { // Only for the very first few packets
-                nextPlayTime += 0.05; // Small delay to allow a bit of buffering
-            }
-
-            source.start(nextPlayTime);
-            nextPlayTimeScheduledElem.textContent = `${nextPlayTime.toFixed(2)}s (starts in ${(nextPlayTime - currentTime).toFixed(2)}s)`;
-
-            nextPlayTime += bufferToPlay.duration;
-            isPlaying = true;
-
-            source.onended = () => {
-                isPlaying = false;
-                // Immediately try to schedule the next one if available
-                schedulePlayback();
-            };
-        }
-
-        // Update AudioContext time display
-        setInterval(() => {
-            if (audioContext && audioContext.state === 'running') {
-                audioContextTimeElem.textContent = `${audioContext.currentTime.toFixed(2)}s`;
-            } else {
-                audioContextTimeElem.textContent = `N/A (State: ${audioContext ? audioContext.state : 'null'})`;
-            }
-        }, 500);
-
-
-        // Initialize Protobuf parser on page load
-        window.onload = async () => {
-            log("Page loaded. Initializing Protobuf schema...");
-            await initProtobuf();
-            // Add a small delay to ensure protobuf is fully ready, or check PacketMessage directly
-            setTimeout(() => {
-                if (PacketMessage) {
-                    connectBtn.disabled = false;
-                    log("Ready to connect.", "info");
-                } else {
-                    log("Protobuf initialization might have failed. Connect button remains disabled.", "error");
-                }
-            }, 100); // Small delay for safety, usually not needed with await.
-
-            // Attempt to initialize AudioContext on user interaction (required by some browsers)
-            // We'll primarily do it on connect, but this is a fallback.
-            const initAudioOnFirstInteraction = () => {
-                if (!audioContext) {
-                    initAudioContext();
-                }
-                document.body.removeEventListener('click', initAudioOnFirstInteraction);
-                document.body.removeEventListener('keydown', initAudioOnFirstInteraction);
-            };
-            document.body.addEventListener('click', initAudioOnFirstInteraction);
-            document.body.addEventListener('keydown', initAudioOnFirstInteraction);
-        };
-
+        updateConnectionStatus('Disconnected');
     </script>
 </body>
 
