@@ -5,9 +5,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Cloudflare Realtime SFU - Audio Publisher</title>
-    <!-- webrtc-adapter for cross-browser compatibility -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/webrtc-adapter/8.2.3/adapter.min.js"
-        integrity="sha512-P3NfFn3amZ7Lhp9D6Rj9DZO8AbK00U37LF1iQSiQSiYJgKOG2Yq24KqsX4H1z/z1/8LPzK4zYgBqfiT/h5D4dA=="
+    <!-- This adapter normalizes cross-browser differences in WebRTC APIs. Currently necessary in order to support Firefox. -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/webrtc-adapter/8.1.2/adapter.min.js"
+        integrity="sha512-l40eBFtXx+ve5RryIELC3y6/OM6Nu89mLGQd7fg1C93tN6XrkC3supb+/YiD/Y+B8P37kdJjtG1MT1kOO2VzxA=="
         crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <style>
         body {
@@ -199,7 +199,8 @@
         <h2>Subscribe Track via API</h2>
         <p>This section allows you to send a POST request to
             <code>/v1/apps/{appId}/sessions/{sessionId}/tracks/subscribe</code> to have the SFU forward the published
-            audio track (e.g., to a WebSocket endpoint for transcription).</p>
+            audio track (e.g., to a WebSocket endpoint for transcription).
+        </p>
 
         <label for="wsEndpoint">WebSocket Endpoint URL (for SFU to send audio to):</label>
         <input type="text" id="wsEndpoint" placeholder="wss://your-websocket-server.example.com/audio_feed">
