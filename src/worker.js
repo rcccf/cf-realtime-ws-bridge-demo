@@ -166,11 +166,14 @@ export default {
 Connect a publisher to: ${protocol}//${url.host}/ws/<your-random-channel-id>/publish
 Connect subscribers to: ${protocol}//${url.host}/ws/<your-random-channel-id>/subscribe
 
-A publisher can be the endpoint parameter for Cloudflare Realtime API's /tracks/subscribe
-A subscriber can be an example WebSocket player available at /player
+A publisher can be the endpoint parameter for Cloudflare Realtime API's WebRTC to WebSocket bridge at /tracks/subscribe
+A subscriber can be an example WebSocket player available at /player, or your audio processor that will speak WebSocket
 
 Replace <your-random-channel-id> with a unique ID for your broadcast room (e.g., a UUID).
-All clients (publisher and subscribers) for the same room must use the same channel ID.`,
+All clients (publisher and subscribers) for the same room must use the same channel ID.
+
+NOTE: This page is provided strictly for demo purposes with no support nor warranty. If you are a Cloudflare Realtime customer,
+please talk to your point of contact about supporting your use case.`,
         { headers: { "Content-Type": "text/plain" } }
       );
     }
