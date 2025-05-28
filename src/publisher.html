@@ -594,6 +594,9 @@
             sendSubscribeBtn.addEventListener('click', sendSubscribeRequest);
 
             updateStatus('disconnected', 'Ready');
+
+            const v = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws/hello-world/publish'
+            wsEndpointInput.placeholder = v
         });
     </script>
 </body>
