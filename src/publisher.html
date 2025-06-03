@@ -198,7 +198,7 @@
     <div class="container api-section">
         <h2>Subscribe Track via API</h2>
         <p>This section allows you to send a POST request to
-            <code>/v1/apps/{appId}/sessions/{sessionId}/tracks/subscribe</code> to have the SFU forward the published
+            <code>/v1/apps/{appId}/adapters/websocket/new</code> to have the SFU forward the published
             audio track (e.g., to a WebSocket endpoint for transcription).
         </p>
 
@@ -509,7 +509,7 @@
             const wsEp = wsEndpointInput.value.trim();
 
             if (appId && sessId) {
-                const url = `${CLOUDFLARE_API_BASE}/apps/${appId}/sessions/${sessId}/tracks/subscribe`;
+                const url = `${CLOUDFLARE_API_BASE}/apps/${appId}/adapters/websocket/new`;
                 subscribeRequestUrlDisplay.textContent = url;
             } else {
                 subscribeRequestUrlDisplay.textContent = '- (App ID and Session ID required)';
@@ -517,6 +517,8 @@
 
             const body = {
                 tracks: [{
+                    location: 'remote',
+                    sessionId: sessId,
                     trackName: trackN || "{publishedTrackName}",
                     endpoint: wsEp || "{user_provided_websocket_endpoint}",
                     outputCodec: "pcm"
@@ -543,9 +545,11 @@
             sendSubscribeBtn.disabled = true;
             subscribeResponseDisplay.textContent = "Sending request to SFU...";
 
-            const path = `/sessions/${sessId}/tracks/subscribe?streamDebug=1`;
+            const path = `/adapters/websocket/new`;
             const body = {
                 tracks: [{
+                    location: 'remote',
+                    sessionId: sessId,
                     trackName: trackN,
                     endpoint: wsEp,
                     outputCodec: "pcm"

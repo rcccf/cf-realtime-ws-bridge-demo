@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Cloudflare Realtime Track Puller</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f7f9;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            background-color: #fff;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 700px;
+        }
+
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        h2 { /* Added basic h2 styling for section titles */
+            color: #2c3e50;
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 1.5em; /* Adjusted size */
+        }
+
+        .controls,
+        .stats {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+
+        input[type="text"],
+        select { /* Combined styles for input and select */
+            width: calc(100% - 22px);
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+            background-color: #fff; /* Ensure background for select */
+            color: #333; /* Ensure text color */
+        }
+        
+        select { /* specific if any, e.g. appearance */
+            appearance: none; /* Optional: for custom dropdown arrow if desired later */
+            background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20width%3D%2220%22%20height%3D%2220%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22M5%208l5%205%205-5z%22%20fill%3D%22%23888%22%2F%3E%3C%2Fsvg%3E');
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            background-size: 12px;
+            padding-right: 30px; /* Make space for arrow */
+        }
+
+
+        button {
+            padding: 10px 18px;
+            margin-right: 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background-color 0.2s ease;
+        }
+
+        #connectBtn {
+            background-color: #3498db;
+            color: white;
+        }
+
+        #connectBtn:hover:not(:disabled) {
+            background-color: #2980b9;
+        }
+
+        #disconnectBtn {
+            background-color: #e74c3c;
+            color: white;
+        }
+
+        #disconnectBtn:hover:not(:disabled) {
+            background-color: #c0392b;
+        }
+        
+        button:disabled { /* General disabled style for buttons */
+            background-color: #bdc3c7;
+            color: #7f8c8d;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+
+        #debugArea {
+            width: 100%;
+            height: 200px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background-color: #ecf0f1;
+            font-family: "Courier New", Courier, monospace;
+            font-size: 0.9em;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            box-sizing: border-box;
+            margin-top: 8px;
+            margin-bottom: 15px; /* Consistent margin */
+        }
+
+        .stats p {
+            margin: 5px 0;
+            font-size: 0.95em;
+        }
+
+        .status-dot {
+            height: 12px;
+            width: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        .status-disconnected {
+            background-color: #e74c3c;
+        }
+
+        .status-connecting {
+            background-color: #f39c12;
+        }
+
+        .status-connected {
+            background-color: #2ecc71;
+        }
+
+        #media-container video,
+        #media-container audio {
+            width: 100%;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            background-color: #ecf0f1; /* Light background */
+            border: 1px solid #ddd; /* Consistent border */
+        }
+        .button-group {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Cloudflare Realtime Track Puller</h1>
+
+    <div class="container">
+        <!-- Configuration Section -->
+        <div class="controls">
+            <h2>Configuration</h2>
+            <div>
+                <label for="appId">App ID</label>
+                <input id="appId" type="text" placeholder="Enter your App ID" />
+            </div>
+            <div>
+                <label for="token">Bearer Token</label>
+                <input id="token" type="text" placeholder="Enter your Bearer token" />
+            </div>
+            <div>
+                <label for="targetSessionId">Remote Session ID</label>
+                <input id="targetSessionId" type="text" placeholder="Session to pull from" />
+            </div>
+            <div>
+                <label for="trackName">Track Name</label>
+                <input id="trackName" type="text" placeholder="Track identifier" />
+            </div>
+            <div>
+                <label for="trackKind">Track Kind</label>
+                <select id="trackKind">
+                    <option value="audio">Audio</option>
+                    <option value="video">Video</option>
+                </select>
+            </div>
+            <div class="button-group">
+                <button id="connectBtn">Start Pull</button>
+                <button id="disconnectBtn" disabled>Stop Pull</button>
+            </div>
+        </div>
+
+        <!-- Logs Section -->
+        <div class="stats">
+            <h2>Logs</h2>
+            <textarea id="debugArea" readonly></textarea>
+        </div>
+
+        <!-- Media Output Section -->
+        <div>
+            <h2>Media Output</h2>
+            <div id="media-container">
+                <!-- Media elements will be added here by JS -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const baseUrl = "https://rtc.live.cloudflare.com/v1";
+        let pc, sfuSessionId;
+
+        function log(msg) {
+            const dbg = document.getElementById('debugArea'); // Changed from 'debug'
+            dbg.value += `[${new Date().toISOString()}] ${msg}
+`;
+            dbg.scrollTop = dbg.scrollHeight;
+        }
+
+        async function startPull() {
+            document.getElementById('connectBtn').disabled = true; // Changed from 'startBtn'
+            const token = document.getElementById('token').value.trim();
+            const appId = document.getElementById('appId').value.trim();
+            const targetSessionId = document.getElementById('targetSessionId').value.trim();
+            const trackName = document.getElementById('trackName').value.trim();
+            const kind = document.getElementById('trackKind').value;
+
+            if (!token || !appId || !targetSessionId || !trackName) {
+                log('❌ All fields are required.');
+                document.getElementById('connectBtn').disabled = false; // Changed from 'startBtn'
+                return;
+            }
+
+            log('🔌 Creating SFU session…');
+            try {
+                const res0 = await fetch(`${baseUrl}/apps/${appId}/sessions/new`, {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (!res0.ok) {
+                    log(`❌ /sessions/new ${res0.status} ${await res0.text()}`);
+                    reset(); // Use reset to re-enable connectBtn
+                    return;
+                }
+                sfuSessionId = (await res0.json()).sessionId;
+                log(`🆔 Session ID: ${sfuSessionId}`);
+
+                pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+                pc.onicecandidate = e => log('ICE candidate: ' + (e.candidate ? e.candidate.candidate : '[complete]'));
+                pc.oniceconnectionstatechange = () => log('ICE state: ' + pc.iceConnectionState);
+                pc.ontrack = evt => {
+                    log(`🎵 Received ${evt.track.kind} track`);
+                    const el = document.createElement(evt.track.kind === 'video' ? 'video' : 'audio');
+                    el.controls = true;
+                    el.autoplay = true;
+                    el.srcObject = new MediaStream([evt.track]);
+                    document.getElementById('media-container').appendChild(el);
+                    log(`📺 Added ${evt.track.kind} element to page.`);
+                };
+
+                log(`➕ Adding ${kind} transceiver`);
+                pc.addTransceiver(kind, { direction: 'recvonly' });
+
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                log('⏳ Waiting for ICE gathering to complete...');
+                await new Promise(resolve => {
+                    if (pc.iceGatheringState === 'complete') return resolve();
+                    pc.addEventListener('icegatheringstatechange', function gather() {
+                        log('ICE gathering state: ' + pc.iceGatheringState);
+                        if (pc.iceGatheringState === 'complete') {
+                            pc.removeEventListener('icegatheringstatechange', gather);
+                            resolve();
+                        }
+                    });
+                    setTimeout(resolve, 5 * 1000);
+                });
+                log('✅ ICE gathering complete.');
+
+
+                log('📡 Pulling track…');
+                const tracksReq = {
+                    sessionDescription: pc.localDescription,
+                    tracks: [{ location: 'remote', sessionId: targetSessionId, trackName, kind }]
+                };
+                const res1 = await fetch(
+                    `${baseUrl}/apps/${appId}/sessions/${sfuSessionId}/tracks/new`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Bearer ' + token,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(tracksReq)
+                });
+                
+                if (!res1.ok) {
+                    log(`❌ /tracks/new ${res1.status} ${await res1.text()}`);
+                    if (pc) { pc.close(); pc = null; }
+                    reset();
+                    return;
+                }
+                const data1 = await res1.json();
+
+                if (!data1.requiresImmediateRenegotiation) {
+                    log('✅ Applying answer…');
+                    await pc.setRemoteDescription(data1.sessionDescription);
+                } else {
+                    log('🔄 Renegotiation required…');
+                    await pc.setRemoteDescription(data1.sessionDescription);
+                    const ans2 = await pc.createAnswer();
+                    await pc.setLocalDescription(ans2);
+                    log('⏳ Waiting for ICE gathering (renegotiation)...');
+                    await new Promise(resolve => {
+                        if (pc.iceGatheringState === 'complete') return resolve();
+                        pc.addEventListener('icegatheringstatechange', function gather2() {
+                            log('ICE gathering state (renegotiation): ' + pc.iceGatheringState);
+                            if (pc.iceGatheringState === 'complete') {
+                                pc.removeEventListener('icegatheringstatechange', gather2);
+                                resolve();
+                            }
+                        });
+                    });
+                    log('✅ ICE gathering complete (renegotiation).');
+
+                    const renegotiateRes = await fetch(
+                        `${baseUrl}/apps/${appId}/sessions/${sfuSessionId}/renegotiate`, {
+                        method: 'PUT',
+                        headers: {
+                            'Authorization': 'Bearer ' + token,
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ sessionDescription: pc.localDescription })
+                    });
+                    if (!renegotiateRes.ok) {
+                         log(`❌ /renegotiate ${renegotiateRes.status} ${await renegotiateRes.text()}`);
+                         if (pc) { pc.close(); pc = null; }
+                         reset();
+                         return;
+                    }
+                    log('✅ Renegotiation complete.');
+                }
+
+                document.getElementById('disconnectBtn').disabled = false; // Changed from 'stopBtn'
+                log('🚀 Pull started successfully!');
+
+            } catch (error) {
+                log(`❌ Error during startPull: ${error.message}`);
+                console.error("Error in startPull:", error);
+                if (pc) { pc.close(); pc = null; }
+                reset(); // Ensure UI is reset on error
+            }
+        }
+
+        function stopPull() {
+            log('⏹️ Stopping and resetting…');
+            if (pc) { pc.close(); pc = null; }
+            document.getElementById('media-container').innerHTML = ''; // Clear media elements
+            reset();
+        }
+
+        function reset() {
+            document.getElementById('connectBtn').disabled = false; // Changed from 'startBtn'
+            document.getElementById('disconnectBtn').disabled = true; // Changed from 'stopBtn'
+            sfuSessionId = null; // Reset session ID
+            log('🔄 UI Reset.');
+        }
+
+        document.getElementById('connectBtn').addEventListener('click', startPull); // Changed from 'startBtn'
+        document.getElementById('disconnectBtn').addEventListener('click', stopPull); // Changed from 'stopBtn'
+    </script>
+</body>
+
+</html>

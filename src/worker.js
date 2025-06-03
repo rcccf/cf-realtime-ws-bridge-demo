@@ -1,6 +1,8 @@
 import playerHtml from "./player.html";
 import publisherHtml from "./publisher.html";
+import pullHtml from "./pull.html";
 import { DurableObject } from "cloudflare:workers";
+import { getHelpMessageText } from "./template";
 
 export class WebSocketBridge extends DurableObject {
   constructor(state, env) {
@@ -160,6 +162,12 @@ export default {
           "Content-Type": "text/html;charset=UTF-8",
         },
       });
+    } else if (url.pathname === "/pull") {
+      return new Response(pullHtml, {
+        headers: {
+          "Content-Type": "text/html;charset=UTF-8",
+        },
+      });
     } else if (url.pathname === "/player") {
       return new Response(playerHtml, {
         headers: {
@@ -167,23 +175,8 @@ export default {
         },
       });
     } else if (url.pathname === "/") {
-      const protocol = url.protocol === "https:" ? "wss:" : "ws:";
-      return new Response(
-        `Welcome to WebSocket Bridge!
-Connect a publisher to: ${protocol}//${url.host}/ws/<your-random-channel-id>/publish
-Connect subscribers to: ${protocol}//${url.host}/ws/<your-random-channel-id>/subscribe
-
-A publisher can be the endpoint parameter for Cloudflare Realtime API's WebRTC to WebSocket bridge at /tracks/subscribe
-A subscriber can be an example WebSocket player available at /player, or your audio processor that will speak WebSocket
-A demo WebRTC client is available at /publisher that publishes your microphone as an audio track
-
-Replace <your-random-channel-id> with a unique ID for your broadcast room (e.g., a UUID).
-All clients (publisher and subscribers) for the same room must use the same channel ID.
-
-NOTE: This page is provided strictly for demo purposes with no support nor warranty. If you are a Cloudflare Realtime customer,
-please talk to your point of contact about supporting your use case.`,
-        { headers: { "Content-Type": "text/plain" } }
-      );
+      const DYNAMIC_WEBSOCKET_BASE_URL = `${url.protocol === "https:" ? "wss:" : "ws:"}//${url.host}`;
+      return new Response(getHelpMessageText(DYNAMIC_WEBSOCKET_BASE_URL), { headers: { 'Content-Type': 'text/plain' } });
     }
 
     return new Response(
