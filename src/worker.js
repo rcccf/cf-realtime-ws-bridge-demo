@@ -1,8 +1,9 @@
+import { DurableObject } from "cloudflare:workers";
+
 import playerHtml from "./player.html";
 import publisherHtml from "./publisher.html";
 import pullHtml from "./pull.html";
-import { DurableObject } from "cloudflare:workers";
-import { getHelpMessageText } from "./template";
+import { getHelpHtmlPage } from "./template";
 
 export class WebSocketBridge extends DurableObject {
   constructor(state, env) {
@@ -176,7 +177,7 @@ export default {
       });
     } else if (url.pathname === "/") {
       const DYNAMIC_WEBSOCKET_BASE_URL = `${url.protocol === "https:" ? "wss:" : "ws:"}//${url.host}`;
-      return new Response(getHelpMessageText(DYNAMIC_WEBSOCKET_BASE_URL), { headers: { 'Content-Type': 'text/plain' } });
+      return new Response(getHelpHtmlPage(DYNAMIC_WEBSOCKET_BASE_URL), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
     }
 
     return new Response(
