@@ -31,38 +31,49 @@ API Request Body to \`/adapters/websocket/new\`:
 {
     "tracks": [{
         "location":    "'local' or 'remote'", // Direction relative to the WebSocket endpoint
-        "sessionId":   "your_session_id",   // Realtime session ID
+        "sessionId":   "your_session_id",   // See notes below; behavior depends on 'location'
         "trackName":   "your_track_name",   // Realtime WebRTC track name
         "endpoint":    "target_websocket_url",// WebSocket URL for bridging
         "outputCodec": "pcm"                 // Example codec
     }]
 }
 
-\`location\` parameter (user's perspective for WebSocket interaction):
-- \`remote\`: Sends audio FROM an existing WebRTC track in your Realtime session
-            TO a "remote" WebSocket \`endpoint\` (e.g., this demo relay's \`/publish\` URL).
-- \`local\`:  Ingests audio FROM a "local" WebSocket \`endpoint\` (e.g., this demo relay's
-            \`/subscribe\` URL) TO CREATE a new WebRTC track in your Realtime session.
+\`location\` parameter & \`sessionId\` behavior (user's perspective):
+- \`location: 'remote'\`: (Send Realtime track audio TO a "remote" WS)
+    - You are sending audio FROM an existing WebRTC track (local to your Realtime session)
+      TO a "remote" WebSocket \`endpoint\`.
+    - \`sessionId\`: REQUIRED. Must be the ID of the Realtime session containing \`trackName\`.
+- \`location: 'local'\`: (Create Realtime track FROM a "local" WS)
+    - You are ingesting audio FROM a "local" WebSocket \`endpoint\` TO CREATE a new
+      WebRTC track in Cloudflare Realtime.
+    - \`sessionId\`: IGNORED. The API will ALWAYS generate a new, unique \`sessionId\` for the
+                     session associated with the newly created track for each API request.
+                     Any \`sessionId\` value you provide in the request will be disregarded.
+                     The generated \`sessionId\` will be returned in the API response.
 
 SCENARIO A: Send Existing WebRTC Track Audio TO a "Remote" WebSocket Endpoint
 ****************************************************************************************
 (Realtime API: WebRTC Track -> "Remote" WebSocket)
 
-1. A WebRTC source (e.g., /publisher app) publishes \`mic-track\` to your Realtime session.
+1. A WebRTC source (e.g., /publisher app) publishes \`mic-track\` to your Realtime session (e.g., \`session-abc\`).
 2. To send \`mic-track\`'s audio out, POST to \`${REALTIME_API_ENDPOINT_BASE}/adapters/websocket/new\` with:
-   { "tracks": [{ "location": "remote", "sessionId": "...", "trackName": "mic-track",
-                   "endpoint": "${dynamicWebsocketBaseUrl}/ws/<channel>/publish", "outputCodec": "pcm" }] }
+   { "tracks": [{ "location": "remote",
+                   "sessionId": "session-abc", // REQUIRED: ID of session containing 'mic-track'
+                   "trackName": "mic-track",
+                   "endpoint": "${dynamicWebsocketBaseUrl}/ws/<channel>/publish",
+                   "outputCodec": "pcm" }] }
 3. This demo relay (acting as the "remote" WebSocket endpoint) receives audio on its \`/publish\` URL
    and broadcasts it to its \`/subscribe\` URL.
 4. WebSocket clients (e.g., /player app) connect to the relay's \`/subscribe\` URL to get the audio.
 
 ASCII Diagram for SCENARIO A:
 
-  [WebRTC Source] ---WebRTC---> [Cloudflare Realtime API Session]
+  [WebRTC Source] ---WebRTC---> [Cloudflare Realtime API Session (ID: session-abc)]
     (e.g., Mic,                      (Has existing 'mic-track')
      /publisher app)                          |
                                               | API Call: POST to \`${REALTIME_API_ENDPOINT_BASE}/adapters/websocket/new\`
-                                              |  - location: 'remote' (Send 'mic-track' audio TO remote WS)
+                                              |  - location: 'remote'
+                                              |  - sessionId: 'session-abc' (REQUIRED)
                                               |  - trackName: 'mic-track'
                                               |  - endpoint: Demo Relay's /publish URL
                                               V
@@ -75,28 +86,33 @@ ASCII Diagram for SCENARIO A:
                                                         | (WebSocket: audio data)
                                                         V
                                              [WebSocket Listeners]
-                                               (e.g., /player app,
-                                                audio backend)
+                                               (e.g., /player app)
 
 
 SCENARIO B: Create WebRTC Track FROM Audio at a "Local" WebSocket Endpoint
 ************************************************************************************
-(Realtime API: "Local" WebSocket -> New WebRTC Track)
+(Realtime API: "Local" WebSocket -> New WebRTC Track with New Session)
 
 1. An audio source sends audio to this demo relay's \`/publish\` URL.
 2. The demo relay broadcasts this audio to its \`/subscribe\` URL. This \`/subscribe\` URL will
    act as the "local" WebSocket endpoint for Realtime.
 3. To create a WebRTC track from this audio, POST to \`${REALTIME_API_ENDPOINT_BASE}/adapters/websocket/new\` with:
-   { "tracks": [{ "location": "local", "sessionId": "...", "trackName": "new-track-from-ws",
-                   "endpoint": "${dynamicWebsocketBaseUrl}/ws/<channel>/subscribe", "outputCodec": "pcm" }] }
-4. Realtime connects to the \`endpoint\`, ingests audio, and creates \`new-track-from-ws\`.
-5. WebRTC clients (e.g., /pull app) subscribe to \`new-track-from-ws\` in Realtime.
+   { "tracks": [{ "location": "local",
+                   // "sessionId": "any_value_is_ignored", // IGNORED by API for 'local'
+                   "trackName": "new-track-from-ws",
+                   "endpoint": "${dynamicWebsocketBaseUrl}/ws/<channel>/subscribe",
+                   "outputCodec": "pcm" }] }
+   (The API will generate a NEW \`sessionId\` for this track, returned in the response.)
+4. Realtime connects to the \`endpoint\`, ingests audio, creates \`new-track-from-ws\`,
+   and associates it with a NEWLY GENERATED \`sessionId\`.
+5. WebRTC clients (e.g., /pull app) use the \`sessionId\` returned in the API response from step 3
+   to subscribe to \`new-track-from-ws\` in Realtime.
 
 ASCII Diagram for SCENARIO B:
 
   [WebSocket Audio Source] --WebSocket--> [Demo Relay (This Worker): ${dynamicWebsocketBaseUrl}/ws/<channel>/publish]
-   (e.g., backend script,                    (Receives audio)
-    audio file streamer)                               |
+   (e.g., backend script)                    (Receives audio)
+                                                       |
                                                        | (WebSocket: audio data broadcast by Relay)
                                                        V
   [Demo Relay (This Worker): ${dynamicWebsocketBaseUrl}/ws/<channel>/subscribe]
@@ -104,26 +120,28 @@ ASCII Diagram for SCENARIO B:
                                                          | (WebSocket: audio data for Realtime to ingest)
                                                          |
                                                          | API Call: POST to \`${REALTIME_API_ENDPOINT_BASE}/adapters/websocket/new\`
-                                                         |  - location: 'local' (Ingest FROM this "local" WS)
-                                                         |  - trackName: 'new-track-from-ws' (To be created)
+                                                         |  - location: 'local'
+                                                         |  - sessionId: (IGNORED - API generates NEW one)
+                                                         |  - trackName: 'new-track-from-ws'
                                                          |  - endpoint: This Relay's /subscribe URL
                                                          V
-                                          [Cloudflare Realtime API Session]
+                                          [Cloudflare Realtime API (Generates NEW Session)]
+                                                         |  (API Response includes the new sessionId)
                                                          |
-                                                         | (Creates 'new-track-from-ws' internally from WS audio)
+                                                         | (Creates 'new-track-from-ws'; associates with NEW sessionId)
                                                          |
                                                          | (WebRTC: audio from 'new-track-from-ws')
                                                          V
-                                              [WebRTC Listeners]
-                                                (e.g., /pull app,
-                                                 browsers)
+                                              [WebRTC Listeners (use new sessionId from API response)]
+                                                (e.g., /pull app)
 
 -------------------------------------------------------
 Demo Web Apps (on This Worker)
 -------------------------------------------------------
 * /publisher: Publishes mic to Realtime (for Scenario A).
 * /player:    Plays audio from a WebSocket URL (e.g., demo relay's /subscribe in Scenario A).
-* /pull:      Pulls & plays a WebRTC track from Realtime (e.g., \`new-track-from-ws\` in Scenario B).
+* /pull:      Pulls & plays a WebRTC track from Realtime (e.g., \`new-track-from-ws\` in Scenario B,
+              using the \`sessionId\` returned by the API when the track was created).
 
 -------------------------------------------------------
 NOTE: Demo only, no warranty. Cloudflare Realtime customers: consult your account team for production use.
