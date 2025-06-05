@@ -19,28 +19,33 @@ export function getHelpHtmlPage(
     return unsafe.replace(/[&<>]/g, replaceTag);
   };
 
-  // JSON content for API examples
-  const apiRequestBodyExampleJson = `{
+  // General API request body example now needs to be more nuanced or split
+  // For conciseness, we'll make a note and specify in scenarios.
+  const apiRequestBodyGeneralNote = `Note: The codec field is 'outputCodec' for 'location: "remote"' and 'inputCodec' for 'location: "local"'. See scenarios.`;
+
+  const apiRequestBodyExampleJsonBase = `{
     "tracks": [{
         "location":    "'local' or 'remote'",
         "sessionId":   "your_session_id",
         "trackName":   "your_track_name",
         "endpoint":    "target_websocket_url",
-        "outputCodec": "pcm"
+        // "outputCodec" or "inputCodec": "pcm" (see note below)
     }]
 }`;
+
 
   const scenarioARequestJson = `{ "tracks": [{ "location": "remote",
                    "sessionId": "session-abc",
                    "trackName": "mic-track",
                    "endpoint": "${dynamicWebsocketBaseUrl}/ws/<channel>/publish",
-                   "outputCodec": "pcm" }] }`;
+                   "outputCodec": "pcm" }] }`; // Uses outputCodec
 
   const scenarioBRequestJson = `{ "tracks": [{ "location": "local",
                    // "sessionId": "any_value_is_ignored",
                    "trackName": "new-track-from-ws",
                    "endpoint": "${dynamicWebsocketBaseUrl}/ws/<channel>/subscribe",
-                   "outputCodec": "pcm" }] }`;
+                   "inputCodec": "pcm" }] }`; // Uses inputCodec
+
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -64,12 +69,12 @@ export function getHelpHtmlPage(
 
         .container {
             background-color: #fff;
-            padding: 25px 40px; /* Increased horizontal padding */
+            padding: 25px 40px;
             border-radius: 8px;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
             width: 100%;
-            max-width: 800px; /* Slightly wider for better readability of pre */
-            margin-bottom: 30px; /* Space for footer if any */
+            max-width: 800px;
+            margin-bottom: 30px;
         }
 
         h1, h2, h3 {
@@ -116,26 +121,26 @@ export function getHelpHtmlPage(
         }
 
         pre.help-content {
-            background-color: #2d2d2d; /* Darker background for code blocks */
-            color: #f8f8f2; /* Light text for contrast */
+            background-color: #2d2d2d;
+            color: #f8f8f2;
             padding: 15px;
             border-radius: 5px;
             overflow-x: auto;
             font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
             font-size: 0.9em;
             line-height: 1.45;
-            white-space: pre; /* Keep whitespace as is from text */
+            white-space: pre;
         }
         
         .api-endpoint {
             font-weight: bold;
-            color: #c0392b; /* A distinct color for API endpoints */
+            color: #c0392b;
         }
 
         .note {
             font-style: italic;
-            background-color: #fffde7; /* Light yellow for notes */
-            border-left: 3px solid #fbc02d; /* Yellow border */
+            background-color: #fffde7;
+            border-left: 3px solid #fbc02d;
             padding: 10px 15px;
             margin-top: 1.5em;
             border-radius: 4px;
@@ -144,14 +149,6 @@ export function getHelpHtmlPage(
         strong {
             color: #555;
         }
-        /* Styles from the original prompt - some may not be used by static help page */
-        input[type="text"] {
-            width: calc(100% - 22px); padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box;
-        }
-        button {
-            padding: 10px 18px; margin-right: 10px; border: none; border-radius: 4px; cursor: pointer; font-size: 1em; transition: background-color 0.2s ease;
-        }
-        /* Unused styles can be removed if this page is purely informational */
     </style>
 </head>
 <body>
@@ -177,24 +174,25 @@ export function getHelpHtmlPage(
         <p>The Cloudflare Realtime API (a separate production service) can bridge WebRTC and WebSockets
         via its endpoint: <code class="inline-code api-endpoint">${REALTIME_API_ENDPOINT_BASE_PLACEHOLDER}/adapters/websocket/new</code></p>
 
-        <p><strong>API Request Body to <code class="inline-code">/adapters/websocket/new</code>:</strong></p>
-        <pre class="help-content">${escapeHtml(apiRequestBodyExampleJson)}</pre>
+        <p><strong>General API Request Body structure to <code class="inline-code">/adapters/websocket/new</code>:</strong></p>
+        <pre class="help-content">${escapeHtml(apiRequestBodyExampleJsonBase)}</pre>
+        <p><em>${apiRequestBodyGeneralNote}</em></p>
+
 
         <p><strong><code class="inline-code">location</code> parameter & <code class="inline-code">sessionId</code> behavior (user's perspective):</strong></p>
         <ul>
             <li>
                 <strong><code class="inline-code">remote</code></strong>: (Send Realtime track audio TO a "remote" WS)
-                <p>You are sending audio FROM an existing WebRTC track (local to your Realtime session)
-                TO a "remote" WebSocket <code class="inline-code">endpoint</code>.</p>
+                <p>You are sending audio FROM an existing WebRTC track TO a "remote" WebSocket <code class="inline-code">endpoint</code>.
+                Uses <code class="inline-code">outputCodec</code> to specify the codec for audio sent TO the WebSocket.</p>
                 <p><code class="inline-code">sessionId</code>: <strong>REQUIRED</strong>. Must be the ID of the Realtime session containing <code class="inline-code">trackName</code>.</p>
             </li>
             <li>
                 <strong><code class="inline-code">local</code></strong>: (Create Realtime track FROM a "local" WS)
-                <p>You are ingesting audio FROM a "local" WebSocket <code class="inline-code">endpoint</code> TO CREATE a new
-                WebRTC track in Cloudflare Realtime.</p>
+                <p>You are ingesting audio FROM a "local" WebSocket <code class="inline-code">endpoint</code> TO CREATE a new WebRTC track.
+                Uses <code class="inline-code">inputCodec</code> to specify the codec of audio received FROM the WebSocket.</p>
                 <p><code class="inline-code">sessionId</code>: <strong>IGNORED</strong>. The API will <strong>ALWAYS</strong> generate a new, unique <code class="inline-code">sessionId</code> for the
                 session associated with the newly created track for each API request.
-                Any <code class="inline-code">sessionId</code> value you provide in the request will be disregarded.
                 The generated <code class="inline-code">sessionId</code> will be returned in the API response.</p>
             </li>
         </ul>
@@ -204,9 +202,8 @@ export function getHelpHtmlPage(
         <ol>
             <li>A WebRTC source (e.g., <code class="inline-code">/publisher</code> app) publishes <code class="inline-code">mic-track</code> to your Realtime session (e.g., <code class="inline-code">session-abc</code>).</li>
             <li>To send <code class="inline-code">mic-track</code>'s audio out, POST to <code class="inline-code api-endpoint">${REALTIME_API_ENDPOINT_BASE_PLACEHOLDER}/adapters/websocket/new</code> with:
-                <pre class="help-content">${escapeHtml(
-                  scenarioARequestJson
-                )}</pre>
+                <pre class="help-content">${escapeHtml(scenarioARequestJson)}</pre>
+                (Note the use of <code class="inline-code">outputCodec</code> for <code class="inline-code">location: "remote"</code>.)
             </li>
             <li>This demo relay (acting as the "remote" WebSocket endpoint) receives audio on its <code class="inline-code">/publish</code> URL
             and broadcasts it to its <code class="inline-code">/subscribe</code> URL.</li>
@@ -223,6 +220,7 @@ export function getHelpHtmlPage(
                                               |  - sessionId: 'session-abc' (REQUIRED)
                                               |  - trackName: 'mic-track'
                                               |  - endpoint: Demo Relay's /publish URL
+                                              |  - outputCodec: 'pcm'
                                               V
   [Demo Relay (This Worker): ${dynamicWebsocketBaseUrl}/ws/&lt;channel>/publish] <---(WebSocket: audio data from Realtime)---
    (Acts as "Remote" WebSocket Endpoint for Realtime)   |
@@ -243,10 +241,8 @@ export function getHelpHtmlPage(
             <li>The demo relay broadcasts this audio to its <code class="inline-code">/subscribe</code> URL. This <code class="inline-code">/subscribe</code> URL will
             act as the "local" WebSocket endpoint for Realtime.</li>
             <li>To create a WebRTC track from this audio, POST to <code class="inline-code api-endpoint">${REALTIME_API_ENDPOINT_BASE_PLACEHOLDER}/adapters/websocket/new</code> with:
-                <pre class="help-content">${escapeHtml(
-                  scenarioBRequestJson
-                )}</pre>
-                (The API will generate a NEW <code class="inline-code">sessionId</code> for this track, returned in the response.)
+                <pre class="help-content">${escapeHtml(scenarioBRequestJson)}</pre>
+                (Note the use of <code class="inline-code">inputCodec</code> for <code class="inline-code">location: "local"</code>. The API will generate a NEW <code class="inline-code">sessionId</code> for this track, returned in the response.)
             </li>
             <li>Realtime connects to the <code class="inline-code">endpoint</code>, ingests audio, creates <code class="inline-code">new-track-from-ws</code>,
             and associates it with a NEWLY GENERATED <code class="inline-code">sessionId</code>.</li>
@@ -269,6 +265,7 @@ export function getHelpHtmlPage(
                                                          |  - sessionId: (IGNORED - API generates NEW one)
                                                          |  - trackName: 'new-track-from-ws'
                                                          |  - endpoint: This Relay's /subscribe URL
+                                                         |  - inputCodec: 'pcm'
                                                          V
                                           [Cloudflare Realtime API (Generates NEW Session)]
                                                          |  (API Response includes the new sessionId)
